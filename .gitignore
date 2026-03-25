@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+inbox.yaml
+outbox.yaml
+feed.yaml
+dispatch_result.yaml
+!config.yaml.example
+outbox_archive/

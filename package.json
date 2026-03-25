@@ -1,0 +1,37 @@
+{
+  "name": "social-cli",
+  "version": "0.1.0",
+  "description": "Agent-optimized social media CLI. Bluesky + X.",
+  "type": "module",
+  "bin": {
+    "social-cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest"
+  },
+  "keywords": [
+    "social",
+    "cli",
+    "bluesky",
+    "atproto",
+    "twitter",
+    "agent"
+  ],
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.20.0",
+  "dependencies": {
+    "@atproto/api": "^0.19.4",
+    "commander": "^14.0.3",
+    "dotenv": "^17.3.1",
+    "twitter-api-v2": "^1.29.0",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.1"
+  }
+}
