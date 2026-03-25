@@ -116,6 +116,7 @@ export const x: SocialPlatform = {
         platform: "x",
         type: "mention",
         author: authors[tweet.author_id ?? ""] ?? "unknown",
+        authorId: tweet.author_id,
         postId: tweet.id,
         text: tweet.text,
         timestamp: tweet.created_at ?? new Date().toISOString(),

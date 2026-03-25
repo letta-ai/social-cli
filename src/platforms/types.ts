@@ -29,6 +29,7 @@ export interface Notification {
   platform: string
   type: string // reply, mention, quote, follow, like
   author: string
+  authorId?: string // permanent ID (DID for Bluesky, user ID for X)
   postId: string
   text: string
   timestamp: string

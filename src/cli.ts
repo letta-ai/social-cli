@@ -21,6 +21,7 @@ program
   .option("-n, --limit <number>", "Max notifications per platform", "50")
   .option("-o, --output <file>", "Output file", "inbox.yaml")
   .option("--max-items <number>", "Max inbox items before truncating oldest", "200")
+  .option("--users-dir <path>", "Directory of user memory files for context enrichment")
   .action(async (opts) => {
     const { sync } = await import("./commands/sync.js")
     await sync({
@@ -29,6 +30,7 @@ program
       limit: parseInt(opts.limit),
       output: opts.output,
       maxItems: parseInt(opts.maxItems),
+      usersDir: opts.usersDir,
     })
   })
 

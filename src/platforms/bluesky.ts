@@ -173,6 +173,7 @@ export const bluesky: SocialPlatform = {
         platform: "bsky",
         type: n.reason,
         author: n.author.handle,
+        authorId: n.author.did,
         postId: n.uri,
         text: record?.text ?? "",
         timestamp: n.indexedAt,
