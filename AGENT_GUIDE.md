@@ -29,7 +29,7 @@ social-cli dispatch
 social-cli sync --platform bsky --platform x --users-dir /path/to/users/
 ```
 
-This writes `inbox.yaml` with all new notifications. If `--users-dir` is provided, each notification is enriched with a `userContext` field containing your memory file for that author (if one exists). Use this context to personalize your responses.
+This writes `inbox.yaml` as a local pending-work queue. Sync merges in unseen notifications and leaves existing pending items in place until they are explicitly handled by dispatch. It is not an append-only history log. If `--users-dir` is provided, each notification is enriched with a `userContext` field containing your memory file for that author (if one exists). Use this context to personalize your responses.
 
 **Output format** (`inbox.yaml`):
 ```yaml
@@ -135,7 +135,7 @@ social-cli dispatch
 2. Executes each action. Continues on failure — one bad action doesn't block the rest.
 3. Writes `dispatch_result.yaml` with per-action results.
 4. Archives `outbox.yaml` to `outbox_archive/`.
-5. Removes processed notifications from `inbox.yaml`.
+5. Removes processed notifications from `inbox.yaml`, keeping the file aligned to pending work only.
 
 **Exit codes:**
 - 0 = all actions succeeded

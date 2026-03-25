@@ -34,6 +34,7 @@ export interface Notification {
   text: string
   timestamp: string
   threadContext?: { author: string; text: string }[]
+  userContext?: string
 }
 
 export interface SearchResult {

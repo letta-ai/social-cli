@@ -10,12 +10,16 @@ import type { Notification } from "../platforms/types.js"
 import { writeFileAtomic } from "../util/fs.js"
 
 interface InboxFile {
-  notifications: (Notification & { userContext?: string })[]
+  notifications: Notification[]
   _sync: {
     timestamp: string
     platforms: string[]
+    unreadOnly: boolean
     usersDir?: string
     usersMatched?: number
+    newCount: number
+    totalCount: number
+    dropped?: number
   }
 }
 
@@ -112,7 +116,8 @@ export async function sync(opts: {
   const outputPath = resolve(process.cwd(), opts.output ?? "inbox.yaml")
   const targetPlatforms = opts.platforms ?? availablePlatforms()
 
-  // Load existing inbox to accumulate
+  // Load existing inbox so pending items persist across repeated sync runs.
+  // inbox.yaml is the local pending-work queue. Sync adds unseen items but never removes existing ones.
   let existing: Notification[] = []
   const existingIds = new Set<string>()
 
@@ -179,12 +184,16 @@ export async function sync(opts: {
     _sync: {
       timestamp: new Date().toISOString(),
       platforms: targetPlatforms,
+      unreadOnly: opts.unreadOnly ?? true,
+      newCount,
+      totalCount: capped.length,
+      ...(dropped > 0 ? { dropped } : {}),
       ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched } : {}),
     },
   }
 
   writeFileAtomic(outputPath, stringify(inbox, { lineWidth: 120 }))
-  let msg = `Synced ${newCount} new notifications (${capped.length} total) → ${outputPath}`
+  let msg = `Synced ${newCount} new notifications (${capped.length} pending total) → ${outputPath}`
   if (dropped > 0) msg += ` (${dropped} oldest dropped, cap: ${maxItems})`
   if (opts.usersDir) msg += ` (${usersMatched} users matched)`
   console.log(msg)
