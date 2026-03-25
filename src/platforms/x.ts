@@ -90,17 +90,21 @@ export const x: SocialPlatform = {
     return results
   },
 
-  async notifications(opts?: NotifOpts): Promise<Notification[]> {
+  async notifications(opts?: NotifOpts): Promise<{ notifications: Notification[]; cursor?: string }> {
     const client = getClient()
     const limit = opts?.limit ?? 20
 
     // X uses mentions as the closest equivalent to notifications
     const me = await client.v2.me()
-    const mentions = await withRetry(() => client.v2.userMentionTimeline(me.data.id, {
+    const params: Record<string, unknown> = {
       max_results: Math.min(limit, 100),
       "tweet.fields": ["created_at", "author_id", "conversation_id"],
       expansions: ["author_id"],
-    }))
+    }
+    // Pass cursor as since_id — X returns only tweets newer than this ID
+    if (opts?.cursor) params.since_id = opts.cursor
+
+    const mentions = await withRetry(() => client.v2.userMentionTimeline(me.data.id, params))
 
     const authors: Record<string, string> = {}
     if (mentions.includes?.users) {
@@ -123,7 +127,9 @@ export const x: SocialPlatform = {
       })
     }
 
-    return notifs
+    // Use the newest tweet's ID as the cursor for the next call
+    const cursor = notifs.length > 0 ? notifs[0].id : undefined
+    return { notifications: notifs, cursor }
   },
 
   async search(query: string, limit = 10): Promise<SearchResult[]> {

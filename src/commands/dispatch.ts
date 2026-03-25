@@ -68,6 +68,38 @@ export async function dispatch(opts: {
     }
   }
 
+  // Load persistent processed state
+  const processedPath = resolve(process.cwd(), "processed.yaml")
+  let persistentProcessed: Set<string> = new Set()
+  if (existsSync(processedPath)) {
+    try {
+      const processedData = parse(readFileSync(processedPath, "utf-8")) as { processed?: string[] }
+      if (processedData?.processed) {
+        persistentProcessed = new Set(processedData.processed)
+      }
+    } catch {
+      // Best effort only
+    }
+  }
+
+  // Merge persistent + outbox-provided processed IDs
+  const allProcessed: Set<string> = new Set(persistentProcessed)
+  if (outbox.processed) {
+    for (const id of outbox.processed) allProcessed.add(id)
+  }
+
+  // Filter inbox: remove everything in the processed set before dispatch
+  if (allProcessed.size > 0 && inboxNotifications.length > 0) {
+    const before = inboxNotifications.length
+    inboxNotifications = inboxNotifications.filter(
+      (n) => !allProcessed.has(n.id) && !allProcessed.has(n.postId ?? ""),
+    )
+    const filtered = before - inboxNotifications.length
+    if (filtered > 0) {
+      console.log(`Filtered ${filtered} previously-processed notification(s) from inbox`)
+    }
+  }
+
   // Dispatch
   const results: DispatchResult[] = []
   const processedNotifIds: string[] = []
@@ -228,6 +260,13 @@ export async function dispatch(opts: {
   // Write results
   const resultPath = resolve(process.cwd(), "dispatch_result.yaml")
   writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved }, { lineWidth: 120 }))
+
+  // Persist processed set for future cycles
+  const newProcessed = new Set([...persistentProcessed, ...processedNotifIds])
+  writeFileAtomic(
+    processedPath,
+    stringify({ processed: [...newProcessed] }, { lineWidth: 120 }),
+  )
 
   const ok = results.filter((r) => r.status === "ok").length
   const failed = results.filter((r) => r.status === "error").length

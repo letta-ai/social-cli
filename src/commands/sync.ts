@@ -20,6 +20,8 @@ interface InboxFile {
     newCount: number
     totalCount: number
     dropped?: number
+    /** Per-platform cursors for incremental sync. */
+    cursors?: Record<string, string>
   }
 }
 
@@ -112,9 +114,23 @@ export async function sync(opts: {
   output?: string
   maxItems?: number
   usersDir?: string
+  reset?: boolean
 }): Promise<void> {
   const outputPath = resolve(process.cwd(), opts.output ?? "inbox.yaml")
   const targetPlatforms = opts.platforms ?? availablePlatforms()
+
+  // Load per-platform timestamps of the newest notification last seen.
+  // Used to filter out already-seen items on subsequent syncs.
+  // Reset with --reset flag.
+  let cursors: Record<string, string> = {}
+  if (!opts.reset && existsSync(outputPath)) {
+    try {
+      const raw = parse(readFileSync(outputPath, "utf-8")) as InboxFile
+      if (raw?._sync?.cursors) cursors = raw._sync.cursors
+    } catch {
+      // Corrupt file, start fresh
+    }
+  }
 
   // Load existing inbox so pending items persist across repeated sync runs.
   // inbox.yaml is the local pending-work queue. Sync adds unseen items but never removes existing ones.
@@ -137,16 +153,27 @@ export async function sync(opts: {
   for (const name of targetPlatforms) {
     try {
       const platform = await getPlatformAsync(name)
-      const notifs = await platform.notifications({
+      // Fetch without passing a cursor — we filter by timestamp instead.
+      // The unreadOnly flag handles the API-level incrementality.
+      const result = await platform.notifications({
         limit: opts.limit ?? 50,
         unreadOnly: opts.unreadOnly ?? true,
       })
 
-      for (const n of notifs) {
+      const cutoff = cursors[name] ? new Date(cursors[name]).getTime() : 0
+
+      for (const n of result.notifications) {
+        const itemTime = new Date(n.timestamp).getTime()
+        // Skip items older than the cutoff
+        if (cutoff > 0 && itemTime <= cutoff) continue
         if (!existingIds.has(n.id)) {
           allNotifs.push(n)
           existingIds.add(n.id)
           newCount++
+        }
+        // Track the newest timestamp as the cursor
+        if (cutoff === 0 || itemTime > cutoff) {
+          cursors[name] = n.timestamp
         }
       }
     } catch (err) {
@@ -187,6 +214,7 @@ export async function sync(opts: {
       unreadOnly: opts.unreadOnly ?? true,
       newCount,
       totalCount: capped.length,
+      cursors,
       ...(dropped > 0 ? { dropped } : {}),
       ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched } : {}),
     },

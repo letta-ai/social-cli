@@ -63,10 +63,18 @@ export interface RateLimitInfo {
   resetsAt: string
 }
 
+export interface NotifResult {
+  notifications: Notification[]
+  /** Opaque cursor to pass back on next call to fetch subsequent pages / newer items. */
+  cursor?: string
+}
+
 export interface NotifOpts {
   limit?: number
   /** Only fetch unread. */
   unreadOnly?: boolean
+  /** Cursor from a previous NotifResult — resumes from that point. */
+  cursor?: string
 }
 
 export interface ProfileInfo {
@@ -85,7 +93,7 @@ export interface SocialPlatform {
   post(text: string, opts?: PostOpts): Promise<PostResult>
   reply(targetId: string, text: string, opts?: PostOpts): Promise<PostResult>
   thread(posts: string[]): Promise<PostResult[]>
-  notifications(opts?: NotifOpts): Promise<Notification[]>
+  notifications(opts?: NotifOpts): Promise<NotifResult>
   search(query: string, limit?: number): Promise<SearchResult[]>
   feed(limit?: number): Promise<FeedItem[]>
   rateLimitStatus(): Promise<RateLimitInfo>

@@ -156,10 +156,12 @@ export const bluesky: SocialPlatform = {
     return results
   },
 
-  async notifications(opts?: NotifOpts): Promise<Notification[]> {
+  async notifications(opts?: NotifOpts): Promise<{ notifications: Notification[]; cursor?: string }> {
     return withSession(async (agent) => {
     const limit = opts?.limit ?? 50
-    const res = await agent.app.bsky.notification.listNotifications({ limit })
+    const params: Record<string, unknown> = { limit }
+    if (opts?.cursor) params.cursor = opts.cursor
+    const res = await agent.app.bsky.notification.listNotifications(params)
 
     const notifs: Notification[] = []
     for (const n of res.data.notifications) {
@@ -207,7 +209,7 @@ export const bluesky: SocialPlatform = {
       notifs.push(item)
     }
 
-    return notifs
+    return { notifications: notifs, cursor: res.data.cursor }
     })
   },
 

@@ -33,6 +33,8 @@ export interface OutboxAction {
 
 export interface OutboxFile {
   dispatch: OutboxAction[]
+  /** Persistently ignore these notification IDs across all future cycles. */
+  processed?: string[]
 }
 
 export interface ValidationResult {
@@ -149,6 +151,14 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       const ig = action.ignore!
       if (!ig.id) errors.push(`${prefix}: ignore missing 'id'`)
       if (!ig.reason) warnings.push(`${prefix}: ignore missing 'reason'`)
+    }
+  }
+
+  if (outbox.processed) {
+    if (!Array.isArray(outbox.processed)) {
+      errors.push("'processed' must be an array of notification IDs")
+    } else if (outbox.processed.length > 0 && outbox.dispatch.length === 0) {
+      warnings.push("'processed' is non-empty but 'dispatch' is empty — all items will be auto-ignored")
     }
   }
 
