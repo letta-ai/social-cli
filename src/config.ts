@@ -53,7 +53,7 @@ export function loadCredentials(platform: string, config: Config): Record<string
 
   for (const p of envPaths) {
     if (existsSync(p)) {
-      loadDotenv({ path: p, override: true })
+      loadDotenv({ path: p, override: true, quiet: true })
       break
     }
   }
