@@ -23,6 +23,7 @@ program
   .option("--max-items <number>", "Max inbox items before truncating oldest", "200")
   .option("--users-dir <path>", "Directory of user memory files for context enrichment")
   .option("--reset", "Clear cursors and re-fetch all notifications from scratch")
+  .option("--clear", "Clear both cursors and the local inbox for a fully fresh start")
   .action(async (opts) => {
     const { sync } = await import("./commands/sync.js")
     await sync({
@@ -33,6 +34,7 @@ program
       maxItems: parseInt(opts.maxItems),
       usersDir: opts.usersDir,
       reset: opts.reset,
+      clear: opts.clear,
     })
   })
 

@@ -114,32 +114,25 @@ export async function sync(opts: {
   output?: string
   maxItems?: number
   usersDir?: string
+  /** Clear cursors and re-fetch all notifications from scratch. */
   reset?: boolean
+  /** Clear both cursors and the local inbox for a fully fresh start. */
+  clear?: boolean
 }): Promise<void> {
   const outputPath = resolve(process.cwd(), opts.output ?? "inbox.yaml")
   const targetPlatforms = opts.platforms ?? availablePlatforms()
 
-  // Load per-platform timestamps of the newest notification last seen.
-  // Used to filter out already-seen items on subsequent syncs.
-  // Reset with --reset flag.
-  let cursors: Record<string, string> = {}
-  if (!opts.reset && existsSync(outputPath)) {
-    try {
-      const raw = parse(readFileSync(outputPath, "utf-8")) as InboxFile
-      if (raw?._sync?.cursors) cursors = raw._sync.cursors
-    } catch {
-      // Corrupt file, start fresh
-    }
-  }
-
-  // Load existing inbox so pending items persist across repeated sync runs.
-  // inbox.yaml is the local pending-work queue. Sync adds unseen items but never removes existing ones.
+  // --clear: wipe everything and start from scratch
   let existing: Notification[] = []
   const existingIds = new Set<string>()
+  let cursors: Record<string, string> = {}
 
-  if (existsSync(outputPath)) {
+  if (!opts.clear && existsSync(outputPath)) {
     try {
       const raw = parse(readFileSync(outputPath, "utf-8")) as InboxFile
+      // Load cursors only if not resetting
+      if (!opts.reset && raw?._sync?.cursors) cursors = raw._sync.cursors
+      // Load existing items only if not clearing
       existing = raw?.notifications ?? []
       for (const n of existing) existingIds.add(n.id)
     } catch {
@@ -154,10 +147,10 @@ export async function sync(opts: {
     try {
       const platform = await getPlatformAsync(name)
       // Fetch without passing a cursor — we filter by timestamp instead.
-      // The unreadOnly flag handles the API-level incrementality.
+      // Disable unreadOnly on --clear so we get the full recent history as baseline.
       const result = await platform.notifications({
         limit: opts.limit ?? 50,
-        unreadOnly: opts.unreadOnly ?? true,
+        unreadOnly: opts.clear ? false : (opts.unreadOnly ?? true),
       })
 
       const cutoff = cursors[name] ? new Date(cursors[name]).getTime() : 0
@@ -171,10 +164,12 @@ export async function sync(opts: {
           existingIds.add(n.id)
           newCount++
         }
-        // Track the newest timestamp as the cursor
-        if (cutoff === 0 || itemTime > cutoff) {
-          cursors[name] = n.timestamp
-        }
+      }
+
+      // Track the newest timestamp seen as the cursor for next sync.
+      // result.notifications are sorted newest-first, so the first item is newest.
+      if (result.notifications.length > 0) {
+        cursors[name] = result.notifications[0].timestamp
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
