@@ -71,6 +71,7 @@ export interface ProfileInfo {
   platform: string
   handle: string
   displayName?: string
+  bio?: string
   did?: string // ATProto DID
   followersCount?: number
   followingCount?: number
@@ -93,6 +94,10 @@ export interface SocialPlatform {
   like?(targetId: string): Promise<void>
   /** Get current account info. */
   whoami?(): Promise<ProfileInfo>
+  /** Look up a user by handle. */
+  profile?(handle: string): Promise<ProfileInfo>
+  /** Fetch recent posts by a user. */
+  userPosts?(handle: string, limit?: number): Promise<FeedItem[]>
   /** Attach an annotation to a URL/post. Bluesky-specific. */
   annotate?(targetId: string, text: string, opts?: AnnotateOpts): Promise<PostResult>
 }

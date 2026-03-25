@@ -323,6 +323,39 @@ export const bluesky: SocialPlatform = {
         platform: "bsky",
         handle: profile.data.handle,
         displayName: profile.data.displayName,
+        bio: profile.data.description,
+        did: profile.data.did,
+        followersCount: profile.data.followersCount,
+        followingCount: profile.data.followsCount,
+        postsCount: profile.data.postsCount,
+      }
+    })
+  },
+
+  async userPosts(handle: string, limit = 20): Promise<FeedItem[]> {
+    return withSession(async (agent) => {
+      const res = await agent.app.bsky.feed.getAuthorFeed({ actor: handle, limit })
+      return res.data.feed.map((item) => ({
+        platform: "bsky",
+        id: item.post.uri,
+        author: item.post.author.handle,
+        text: (item.post.record as any).text ?? "",
+        timestamp: item.post.indexedAt,
+        likeCount: item.post.likeCount ?? 0,
+        replyCount: item.post.replyCount ?? 0,
+        repostCount: item.post.repostCount ?? 0,
+      }))
+    })
+  },
+
+  async profile(handle: string): Promise<ProfileInfo> {
+    return withSession(async (agent) => {
+      const profile = await agent.app.bsky.actor.getProfile({ actor: handle })
+      return {
+        platform: "bsky",
+        handle: profile.data.handle,
+        displayName: profile.data.displayName,
+        bio: profile.data.description,
         did: profile.data.did,
         followersCount: profile.data.followersCount,
         followingCount: profile.data.followsCount,

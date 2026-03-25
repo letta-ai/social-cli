@@ -186,14 +186,52 @@ export const x: SocialPlatform = {
 
   async whoami(): Promise<ProfileInfo> {
     const client = getClient()
-    const me = await client.v2.me({ "user.fields": ["public_metrics", "name", "username"] })
+    const me = await client.v2.me({ "user.fields": ["public_metrics", "name", "username", "description"] })
     return {
       platform: "x",
       handle: me.data.username,
       displayName: me.data.name,
+      bio: (me.data as any).description,
       followersCount: (me.data.public_metrics as any)?.followers_count,
       followingCount: (me.data.public_metrics as any)?.following_count,
       postsCount: (me.data.public_metrics as any)?.tweet_count,
+    }
+  },
+
+  async userPosts(handle: string, limit = 20): Promise<FeedItem[]> {
+    const client = getClient()
+    const user = await withRetry(() => client.v2.userByUsername(handle))
+    if (!user.data) throw new Error(`User not found: ${handle}`)
+    const timeline = await withRetry(() => client.v2.userTimeline(user.data.id, {
+      max_results: Math.max(10, Math.min(limit, 100)),
+      "tweet.fields": ["created_at", "public_metrics"],
+    }))
+    return (timeline.data?.data ?? []).map((t) => ({
+      platform: "x",
+      id: t.id,
+      author: handle,
+      text: t.text,
+      timestamp: t.created_at ?? "",
+      likeCount: (t.public_metrics as any)?.like_count ?? 0,
+      replyCount: (t.public_metrics as any)?.reply_count ?? 0,
+      repostCount: (t.public_metrics as any)?.retweet_count ?? 0,
+    }))
+  },
+
+  async profile(handle: string): Promise<ProfileInfo> {
+    const client = getClient()
+    const user = await withRetry(() => client.v2.userByUsername(handle, {
+      "user.fields": ["public_metrics", "name", "username", "description"],
+    }))
+    if (!user.data) throw new Error(`User not found: ${handle}`)
+    return {
+      platform: "x",
+      handle: user.data.username,
+      displayName: user.data.name,
+      bio: (user.data as any).description,
+      followersCount: (user.data.public_metrics as any)?.followers_count,
+      followingCount: (user.data.public_metrics as any)?.following_count,
+      postsCount: (user.data.public_metrics as any)?.tweet_count,
     }
   },
 

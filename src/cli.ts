@@ -228,4 +228,44 @@ program
     process.stdout.write(stringify(profiles))
   })
 
+// posts: Fetch a user's recent posts
+program
+  .command("posts")
+  .description("Fetch recent posts by a user")
+  .argument("<handle>", "User handle (e.g. cameron.stream, @cameron_pfiffer)")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .option("-n, --limit <number>", "Max posts", "20")
+  .action(async (handle, opts) => {
+    const { getPlatformAsync } = await import("./platforms/index.js")
+    const { stringify } = await import("yaml")
+    const platform = await getPlatformAsync(opts.platform)
+    if (!platform.userPosts) {
+      console.error(`Platform ${opts.platform} does not support user posts`)
+      process.exit(1)
+    }
+    const cleanHandle = handle.replace(/^@/, "")
+    const posts = await platform.userPosts(cleanHandle, parseInt(opts.limit))
+    process.stdout.write(stringify(posts, { lineWidth: 120 }))
+  })
+
+// profile: Look up a user
+program
+  .command("profile")
+  .description("Look up a user by handle")
+  .argument("<handle>", "User handle (e.g. cameron.stream, @cameron_pfiffer)")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .action(async (handle, opts) => {
+    const { getPlatformAsync } = await import("./platforms/index.js")
+    const { stringify } = await import("yaml")
+    const platform = await getPlatformAsync(opts.platform)
+    if (!platform.profile) {
+      console.error(`Platform ${opts.platform} does not support profile lookup`)
+      process.exit(1)
+    }
+    // Strip leading @ if present
+    const cleanHandle = handle.replace(/^@/, "")
+    const info = await platform.profile(cleanHandle)
+    process.stdout.write(stringify(info))
+  })
+
 program.parse()
