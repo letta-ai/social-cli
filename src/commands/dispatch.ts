@@ -15,6 +15,9 @@ interface DispatchResult {
   platform: string
   status: "ok" | "error"
   id?: string
+  targetId?: string
+  inboxIdsRemoved?: string[]
+  archivedOutbox?: string
   error?: string
 }
 
@@ -53,6 +56,18 @@ export async function dispatch(opts: {
     process.exit(0)
   }
 
+  // Load inbox for validation and later pruning
+  const inboxPath = resolve(process.cwd(), "inbox.yaml")
+  let inboxNotifications: Array<{ id: string; postId?: string }> = []
+  if (existsSync(inboxPath)) {
+    try {
+      const inbox = parse(readFileSync(inboxPath, "utf-8")) as { notifications?: Array<{ id: string; postId?: string }> }
+      inboxNotifications = inbox?.notifications ?? []
+    } catch {
+      // Best effort only
+    }
+  }
+
   // Dispatch
   const results: DispatchResult[] = []
   const processedNotifIds: string[] = []
@@ -71,12 +86,14 @@ export async function dispatch(opts: {
       try {
         const platform = await getPlatformAsync(r.platform)
         const res = await platform.reply(r.id, r.text)
-        results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id })
-        processedNotifIds.push(r.id)
+        results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
+        // Only prune from inbox if the target came from there
+        const targetExistsInInbox = inboxNotifications.some((n) => n.id === r.id || n.postId === r.id)
+        if (targetExistsInInbox) processedNotifIds.push(r.id)
         console.log(`Replied on ${r.platform}: ${res.id}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        results.push({ action: "reply", platform: r.platform, status: "error", error: msg })
+        results.push({ action: "reply", platform: r.platform, status: "error", targetId: r.id, error: msg })
         console.error(`Reply failed on ${r.platform}: ${msg}`)
       }
     }
@@ -166,32 +183,51 @@ export async function dispatch(opts: {
     }
   }
 
-  // Write results
-  const resultPath = resolve(process.cwd(), "dispatch_result.yaml")
-  writeFileAtomic(resultPath, stringify({ results }, { lineWidth: 120 }))
-
   // Archive outbox
   const archiveDir = resolve(process.cwd(), "outbox_archive")
   mkdirSync(archiveDir, { recursive: true })
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-  renameSync(filePath, join(archiveDir, `${timestamp}_outbox.yaml`))
+  const archivedOutbox = join(archiveDir, `${timestamp}_outbox.yaml`)
+  renameSync(filePath, archivedOutbox)
 
   // Remove processed items from inbox
-  const inboxPath = resolve(process.cwd(), "inbox.yaml")
+  let inboxIdsRemoved: string[] = []
   if (processedNotifIds.length > 0 && existsSync(inboxPath)) {
     try {
-      const inbox = parse(readFileSync(inboxPath, "utf-8")) as { notifications: any[] }
+      const inbox = parse(readFileSync(inboxPath, "utf-8")) as { notifications: any[]; _sync?: Record<string, unknown> }
       if (inbox?.notifications) {
         const processedSet = new Set(processedNotifIds)
-        inbox.notifications = inbox.notifications.filter(
-          (n: any) => !processedSet.has(n.id) && !processedSet.has(n.postId),
-        )
+        const before = inbox.notifications
+        const remaining = before.filter((n: any) => !processedSet.has(n.id) && !processedSet.has(n.postId))
+        inboxIdsRemoved = before
+          .filter((n: any) => processedSet.has(n.id) || processedSet.has(n.postId))
+          .map((n: any) => n.id)
+        inbox.notifications = remaining
+        if (inbox._sync) {
+          inbox._sync = {
+            ...inbox._sync,
+            totalCount: remaining.length,
+          }
+        }
         writeFileAtomic(inboxPath, stringify(inbox, { lineWidth: 120 }))
       }
     } catch {
       // Best effort
     }
   }
+
+  for (const result of results) {
+    if (result.status === "ok") {
+      result.archivedOutbox = archivedOutbox
+      if (result.targetId) {
+        result.inboxIdsRemoved = inboxIdsRemoved.filter((id) => id === result.targetId)
+      }
+    }
+  }
+
+  // Write results
+  const resultPath = resolve(process.cwd(), "dispatch_result.yaml")
+  writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved }, { lineWidth: 120 }))
 
   const ok = results.filter((r) => r.status === "ok").length
   const failed = results.filter((r) => r.status === "error").length
