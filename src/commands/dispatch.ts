@@ -83,23 +83,18 @@ export async function dispatch(opts: {
 
     if (action.reply) {
       const r = action.reply
-      const targetExistsInInbox = inboxNotifications.some((n) => n.id === r.id || n.postId === r.id)
-      if (!targetExistsInInbox) {
-        const msg = `Reply target is not present in inbox.yaml: ${r.id}`
+      try {
+        const platform = await getPlatformAsync(r.platform)
+        const res = await platform.reply(r.id, r.text)
+        results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
+        // Only prune from inbox if the target came from there
+        const targetExistsInInbox = inboxNotifications.some((n) => n.id === r.id || n.postId === r.id)
+        if (targetExistsInInbox) processedNotifIds.push(r.id)
+        console.log(`Replied on ${r.platform}: ${res.id}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "reply", platform: r.platform, status: "error", targetId: r.id, error: msg })
-        console.error(`Reply validation failed on ${r.platform}: ${msg}`)
-      } else {
-        try {
-          const platform = await getPlatformAsync(r.platform)
-          const res = await platform.reply(r.id, r.text)
-          results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
-          processedNotifIds.push(r.id)
-          console.log(`Replied on ${r.platform}: ${res.id}`)
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          results.push({ action: "reply", platform: r.platform, status: "error", targetId: r.id, error: msg })
-          console.error(`Reply failed on ${r.platform}: ${msg}`)
-        }
+        console.error(`Reply failed on ${r.platform}: ${msg}`)
       }
     }
 
