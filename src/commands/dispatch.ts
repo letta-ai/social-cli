@@ -197,6 +197,24 @@ export async function dispatch(opts: {
       }
     }
 
+    if (action.follow) {
+      const f = action.follow
+      try {
+        const platform = await getPlatformAsync(f.platform)
+        if (!platform.follow) {
+          throw new Error(`Platform ${f.platform} does not support follow`)
+        }
+        const cleanHandle = f.handle.replace(/^@/, "")
+        await platform.follow(cleanHandle)
+        results.push({ action: "follow", platform: f.platform, status: "ok", id: cleanHandle })
+        console.log(`Followed on ${f.platform}: ${cleanHandle}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        results.push({ action: "follow", platform: f.platform, status: "error", error: msg })
+        console.error(`Follow failed on ${f.platform}: ${msg}`)
+      }
+    }
+
     if (action.annotate) {
       const a = action.annotate
       try {

@@ -25,6 +25,10 @@ export interface OutboxAction {
     text: string
     motivation?: string
   }
+  follow?: {
+    platform: string
+    handle: string
+  }
   ignore?: {
     id: string
     reason: string
@@ -67,12 +71,12 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
     const prefix = `Action ${i}`
 
     // Determine action type
-    const types = ["reply", "post", "thread", "annotate", "ignore"].filter(
+    const types = ["reply", "post", "thread", "annotate", "follow", "ignore"].filter(
       (t) => action[t as keyof OutboxAction] !== undefined,
     )
 
     if (types.length === 0) {
-      errors.push(`${prefix}: No recognized action type (reply, post, thread, annotate, ignore)`)
+      errors.push(`${prefix}: No recognized action type (reply, post, thread, annotate, follow, ignore)`)
       continue
     }
     if (types.length > 1) {
@@ -145,6 +149,12 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (a.platform && a.platform !== "bsky") {
         warnings.push(`${prefix}: annotations only supported on bsky`)
       }
+    }
+
+    if (type === "follow") {
+      const f = action.follow!
+      if (!f.platform) errors.push(`${prefix}: follow missing 'platform'`)
+      if (!f.handle) errors.push(`${prefix}: follow missing 'handle'`)
     }
 
     if (type === "ignore") {

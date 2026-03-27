@@ -110,6 +110,8 @@ export interface SocialPlatform {
   userPosts?(handle: string, limit?: number): Promise<FeedItem[]>
   /** Attach an annotation to a URL/post. Bluesky-specific. */
   annotate?(targetId: string, text: string, opts?: AnnotateOpts): Promise<PostResult>
+  /** Follow a user by handle or DID. */
+  follow?(handle: string): Promise<void>
 }
 
 /** Per-platform character limits. */

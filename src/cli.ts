@@ -254,6 +254,24 @@ program
     process.stdout.write(stringify(posts, { lineWidth: 120 }))
   })
 
+// follow: Follow a user
+program
+  .command("follow")
+  .description("Follow a user by handle")
+  .argument("<handle>", "User handle (e.g. cameron.stream, @cpfiffer.bsky.social)")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .action(async (handle, opts) => {
+    const { getPlatformAsync } = await import("./platforms/index.js")
+    const platform = await getPlatformAsync(opts.platform)
+    if (!platform.follow) {
+      console.error(`Platform ${opts.platform} does not support follow`)
+      process.exit(1)
+    }
+    const cleanHandle = handle.replace(/^@/, "")
+    await platform.follow(cleanHandle)
+    console.log(`Followed: ${cleanHandle}`)
+  })
+
 // profile: Look up a user
 program
   .command("profile")
