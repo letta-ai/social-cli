@@ -351,6 +351,14 @@ export const bluesky: SocialPlatform = {
     })
   },
 
+  async follow(handle: string): Promise<void> {
+    return withSession(async (agent) => {
+      const cleanHandle = handle.replace(/^@/, "")
+      const res = await agent.resolveHandle({ handle: cleanHandle })
+      await agent.follow(res.data.did)
+    })
+  },
+
   async profile(handle: string): Promise<ProfileInfo> {
     return withSession(async (agent) => {
       const profile = await agent.app.bsky.actor.getProfile({ actor: handle })
