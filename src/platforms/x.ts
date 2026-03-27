@@ -225,6 +225,29 @@ export const x: SocialPlatform = {
     }))
   },
 
+  async follow(handle: string): Promise<void> {
+    const client = getClient()
+    const cleanHandle = handle.replace(/^@/, "")
+    const target = await withRetry(() => client.v2.userByUsername(cleanHandle))
+    if (!target.data) throw new Error(`User not found: ${handle}`)
+
+    const me = await withRetry(() => client.v2.me())
+
+    try {
+      await withRetry(() => client.v2.follow(me.data.id, target.data.id))
+      return
+    } catch (v2Err) {
+      try {
+        await withRetry(() => client.v1.createFriendship({ user_id: target.data.id, follow: true }))
+        return
+      } catch (v1Err) {
+        const v2Msg = v2Err instanceof Error ? v2Err.message : String(v2Err)
+        const v1Msg = v1Err instanceof Error ? v1Err.message : String(v1Err)
+        throw new Error(`X follow failed via v2 (${v2Msg}) and v1 (${v1Msg})`)
+      }
+    }
+  },
+
   async profile(handle: string): Promise<ProfileInfo> {
     const client = getClient()
     const user = await withRetry(() => client.v2.userByUsername(handle, {

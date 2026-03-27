@@ -51,6 +51,46 @@ export async function dispatch(opts: {
     process.exit(1)
   }
 
+  // Pre-dispatch deduplication and malformed-thread validation
+  const preflightErrors: string[] = []
+  const seenTargets = new Set<string>()
+
+  for (let i = 0; i < outbox.dispatch.length; i++) {
+    const action = outbox.dispatch[i]
+
+    // Check for duplicate targets
+    if (action.reply) {
+      const targetKey = `reply:${action.reply.platform}:${action.reply.id}`
+      if (seenTargets.has(targetKey)) {
+        preflightErrors.push(`Duplicate reply target: ${action.reply.id}`)
+      }
+      seenTargets.add(targetKey)
+    }
+
+    if (action.follow) {
+      const targetKey = `follow:${action.follow.platform}:${action.follow.handle}`
+      if (seenTargets.has(targetKey)) {
+        preflightErrors.push(`Duplicate follow target: ${action.follow.handle}`)
+      }
+      seenTargets.add(targetKey)
+    }
+
+    // Check for malformed thread roots
+    if (action.thread) {
+      if (!action.thread.posts || action.thread.posts.length === 0) {
+        preflightErrors.push(`Thread has no posts`)
+      } else if (!action.thread.posts[0] || action.thread.posts[0].trim() === "") {
+        preflightErrors.push(`Thread root has empty payload`)
+      }
+    }
+  }
+
+  if (preflightErrors.length > 0) {
+    for (const e of preflightErrors) console.error(`Preflight error: ${e}`)
+    console.error(`Preflight validation failed: ${preflightErrors.length} error(s)`)
+    process.exit(1)
+  }
+
   if (opts.dryRun) {
     console.log("Dry run: validation passed.")
     process.exit(0)
@@ -119,9 +159,12 @@ export async function dispatch(opts: {
         const platform = await getPlatformAsync(r.platform)
         const res = await platform.reply(r.id, r.text)
         results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
-        // Only prune from inbox if the target came from there
-        const targetExistsInInbox = inboxNotifications.some((n) => n.id === r.id || n.postId === r.id)
-        if (targetExistsInInbox) processedNotifIds.push(r.id)
+        // Prune both the matched notification id and its postId alias if present in inbox
+        const matchedNotifications = inboxNotifications.filter((n) => n.id === r.id || n.postId === r.id)
+        for (const n of matchedNotifications) {
+          processedNotifIds.push(n.id)
+          if (n.postId) processedNotifIds.push(n.postId)
+        }
         console.log(`Replied on ${r.platform}: ${res.id}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -248,9 +291,9 @@ export async function dispatch(opts: {
       if (inbox?.notifications) {
         const processedSet = new Set(processedNotifIds)
         const before = inbox.notifications
-        const remaining = before.filter((n: any) => !processedSet.has(n.id) && !processedSet.has(n.postId))
+        const remaining = before.filter((n: any) => !processedSet.has(n.id) && !processedSet.has(n.postId ?? ""))
         inboxIdsRemoved = before
-          .filter((n: any) => processedSet.has(n.id) || processedSet.has(n.postId))
+          .filter((n: any) => processedSet.has(n.id) || processedSet.has(n.postId ?? ""))
           .map((n: any) => n.id)
         inbox.notifications = remaining
         if (inbox._sync) {
