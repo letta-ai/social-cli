@@ -51,6 +51,46 @@ export async function dispatch(opts: {
     process.exit(1)
   }
 
+  // Pre-dispatch deduplication and malformed-thread validation
+  const preflightErrors: string[] = []
+  const seenTargets = new Set<string>()
+
+  for (let i = 0; i < outbox.dispatch.length; i++) {
+    const action = outbox.dispatch[i]
+
+    // Check for duplicate targets
+    if (action.reply) {
+      const targetKey = `reply:${action.reply.platform}:${action.reply.id}`
+      if (seenTargets.has(targetKey)) {
+        preflightErrors.push(`Duplicate reply target: ${action.reply.id}`)
+      }
+      seenTargets.add(targetKey)
+    }
+
+    if (action.follow) {
+      const targetKey = `follow:${action.follow.platform}:${action.follow.handle}`
+      if (seenTargets.has(targetKey)) {
+        preflightErrors.push(`Duplicate follow target: ${action.follow.handle}`)
+      }
+      seenTargets.add(targetKey)
+    }
+
+    // Check for malformed thread roots
+    if (action.thread) {
+      if (!action.thread.posts || action.thread.posts.length === 0) {
+        preflightErrors.push(`Thread has no posts`)
+      } else if (!action.thread.posts[0] || action.thread.posts[0].trim() === "") {
+        preflightErrors.push(`Thread root has empty payload`)
+      }
+    }
+  }
+
+  if (preflightErrors.length > 0) {
+    for (const e of preflightErrors) console.error(`Preflight error: ${e}`)
+    console.error(`Preflight validation failed: ${preflightErrors.length} error(s)`)
+    process.exit(1)
+  }
+
   if (opts.dryRun) {
     console.log("Dry run: validation passed.")
     process.exit(0)
