@@ -159,9 +159,12 @@ export async function dispatch(opts: {
         const platform = await getPlatformAsync(r.platform)
         const res = await platform.reply(r.id, r.text)
         results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
-        // Only prune from inbox if the target came from there
-        const targetExistsInInbox = inboxNotifications.some((n) => n.id === r.id || n.postId === r.id)
-        if (targetExistsInInbox) processedNotifIds.push(r.id)
+        // Prune both the matched notification id and its postId alias if present in inbox
+        const matchedNotifications = inboxNotifications.filter((n) => n.id === r.id || n.postId === r.id)
+        for (const n of matchedNotifications) {
+          processedNotifIds.push(n.id)
+          if (n.postId) processedNotifIds.push(n.postId)
+        }
         console.log(`Replied on ${r.platform}: ${res.id}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -288,9 +291,9 @@ export async function dispatch(opts: {
       if (inbox?.notifications) {
         const processedSet = new Set(processedNotifIds)
         const before = inbox.notifications
-        const remaining = before.filter((n: any) => !processedSet.has(n.id) && !processedSet.has(n.postId))
+        const remaining = before.filter((n: any) => !processedSet.has(n.id) && !processedSet.has(n.postId ?? ""))
         inboxIdsRemoved = before
-          .filter((n: any) => processedSet.has(n.id) || processedSet.has(n.postId))
+          .filter((n: any) => processedSet.has(n.id) || processedSet.has(n.postId ?? ""))
           .map((n: any) => n.id)
         inbox.notifications = remaining
         if (inbox._sync) {
