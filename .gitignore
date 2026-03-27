@@ -5,6 +5,13 @@ dist/
 inbox.yaml
 outbox.yaml
 feed.yaml
+bsky_feed.yaml
+x_feed.yaml
+x_inbox.yaml
 dispatch_result.yaml
+processed.yaml
+config.yaml
+package-lock.json
 !config.yaml.example
 outbox_archive/
+sent_ledger.yaml
