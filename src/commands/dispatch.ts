@@ -5,6 +5,7 @@
 
 import { readFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
 import { resolve, join } from "node:path"
+import { createHash } from "node:crypto"
 import { parse, stringify } from "yaml"
 import { getPlatformAsync } from "../platforms/index.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
@@ -19,6 +20,33 @@ interface DispatchResult {
   inboxIdsRemoved?: string[]
   archivedOutbox?: string
   error?: string
+}
+
+interface SentLedgerEntry {
+  key: string
+  action: string
+  platform: string
+  targetId?: string
+  notificationId?: string
+  textHash?: string
+  createdId?: string
+  timestamp: string
+}
+
+function hashText(text: string): string {
+  return createHash("sha256").update(text.trim()).digest("hex")
+}
+
+function replyKey(platform: string, targetId: string, text: string, idempotencyKey?: string): string {
+  return idempotencyKey ?? `reply:${platform}:${targetId}:${hashText(text)}`
+}
+
+function postKey(platform: string, text: string, idempotencyKey?: string): string {
+  return idempotencyKey ?? `post:${platform}:${hashText(text)}`
+}
+
+function threadKey(platform: string, posts: string[], idempotencyKey?: string): string {
+  return idempotencyKey ?? `thread:${platform}:${hashText(posts.join("\n\n"))}`
 }
 
 export async function dispatch(opts: {
@@ -51,7 +79,22 @@ export async function dispatch(opts: {
     process.exit(1)
   }
 
-  // Pre-dispatch deduplication and malformed-thread validation
+
+  // Load sent ledger for replay protection
+  const sentLedgerPath = resolve(process.cwd(), "sent_ledger.yaml")
+  let sentLedger: SentLedgerEntry[] = []
+  let sentKeys = new Set<string>()
+  if (existsSync(sentLedgerPath)) {
+    try {
+      const sentData = parse(readFileSync(sentLedgerPath, "utf-8")) as { entries?: SentLedgerEntry[] }
+      sentLedger = sentData?.entries ?? []
+      sentKeys = new Set(sentLedger.map((entry) => entry.key))
+    } catch {
+      // Best effort only
+    }
+  }
+
+  // Pre-dispatch deduplication, replay protection, and malformed-thread validation
   const preflightErrors: string[] = []
   const seenTargets = new Set<string>()
 
@@ -75,12 +118,53 @@ export async function dispatch(opts: {
       seenTargets.add(targetKey)
     }
 
+    if (action.reply) {
+      const key = replyKey(
+        action.reply.platform,
+        action.reply.id,
+        action.reply.text,
+        action.reply.idempotencyKey,
+      )
+      if (sentKeys.has(key)) {
+        preflightErrors.push(`Replay detected for reply target: ${action.reply.id}`)
+      }
+    }
+
+    if (action.post) {
+      if (action.post.text) {
+        const platforms = Array.isArray(action.post.platforms)
+          ? action.post.platforms
+          : action.post.platforms && typeof action.post.platforms === "object"
+            ? Object.keys(action.post.platforms)
+            : ["bsky"]
+        for (const platform of platforms) {
+          const key = postKey(platform, action.post.text, action.post.idempotencyKey)
+          if (sentKeys.has(key)) {
+            preflightErrors.push(`Replay detected for post on ${platform}`)
+          }
+        }
+      }
+      if (action.post.platforms && typeof action.post.platforms === "object" && !Array.isArray(action.post.platforms)) {
+        for (const [platform, text] of Object.entries(action.post.platforms)) {
+          const key = postKey(platform, text, action.post.idempotencyKey)
+          if (sentKeys.has(key)) {
+            preflightErrors.push(`Replay detected for post on ${platform}`)
+          }
+        }
+      }
+    }
+
     // Check for malformed thread roots
     if (action.thread) {
       if (!action.thread.posts || action.thread.posts.length === 0) {
         preflightErrors.push(`Thread has no posts`)
       } else if (!action.thread.posts[0] || action.thread.posts[0].trim() === "") {
         preflightErrors.push(`Thread root has empty payload`)
+      }
+
+      const key = threadKey(action.thread.platform, action.thread.posts, action.thread.idempotencyKey)
+      if (sentKeys.has(key)) {
+        preflightErrors.push(`Replay detected for thread on ${action.thread.platform}`)
       }
     }
   }
@@ -143,6 +227,13 @@ export async function dispatch(opts: {
   // Dispatch
   const results: DispatchResult[] = []
   const processedNotifIds: string[] = []
+  const sentEntriesToAppend: SentLedgerEntry[] = []
+  let successfulReplyCount = 0
+
+  const getLedgerProcessedIds = (): string[] =>
+    sentEntriesToAppend
+      .map((entry) => entry.notificationId)
+      .filter((id): id is string => Boolean(id))
 
   for (let i = 0; i < outbox.dispatch.length; i++) {
     const action = outbox.dispatch[i]
@@ -159,8 +250,23 @@ export async function dispatch(opts: {
         const platform = await getPlatformAsync(r.platform)
         const res = await platform.reply(r.id, r.text)
         results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
-        // Prune both the matched notification id and its postId alias if present in inbox
-        const matchedNotifications = inboxNotifications.filter((n) => n.id === r.id || n.postId === r.id)
+        successfulReplyCount += 1
+
+        const replyLedgerKey = replyKey(r.platform, r.id, r.text, r.idempotencyKey)
+        sentEntriesToAppend.push({
+          key: replyLedgerKey,
+          action: "reply",
+          platform: r.platform,
+          targetId: r.id,
+          notificationId: r.notificationId,
+          textHash: hashText(r.text),
+          createdId: res.id,
+          timestamp: new Date().toISOString(),
+        })
+
+        // Prune both the explicit notification id and inbox matches by target alias
+        if (r.notificationId) processedNotifIds.push(r.notificationId)
+        const matchedNotifications = inboxNotifications.filter((n) => n.id === r.id || n.postId === r.id || n.id === r.notificationId)
         for (const n of matchedNotifications) {
           processedNotifIds.push(n.id)
           if (n.postId) processedNotifIds.push(n.postId)
@@ -198,6 +304,14 @@ export async function dispatch(opts: {
           const platform = await getPlatformAsync(t.platform)
           const res = await platform.post(t.text)
           results.push({ action: "post", platform: t.platform, status: "ok", id: res.id })
+          sentEntriesToAppend.push({
+            key: postKey(t.platform, t.text, p.idempotencyKey),
+            action: "post",
+            platform: t.platform,
+            textHash: hashText(t.text),
+            createdId: res.id,
+            timestamp: new Date().toISOString(),
+          })
           console.log(`Posted on ${t.platform}: ${res.id}`)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -215,6 +329,14 @@ export async function dispatch(opts: {
         for (const r of res) {
           results.push({ action: "thread", platform: t.platform, status: "ok", id: r.id })
         }
+        sentEntriesToAppend.push({
+          key: threadKey(t.platform, t.posts, t.idempotencyKey),
+          action: "thread",
+          platform: t.platform,
+          textHash: hashText(t.posts.join("\n\n")),
+          createdId: res[0]?.id,
+          timestamp: new Date().toISOString(),
+        })
         console.log(`Thread posted on ${t.platform}: ${res.length} posts`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -283,6 +405,18 @@ export async function dispatch(opts: {
   const archivedOutbox = join(archiveDir, `${timestamp}_outbox.yaml`)
   renameSync(filePath, archivedOutbox)
 
+  if (sentEntriesToAppend.length > 0) {
+    sentLedger.push(...sentEntriesToAppend)
+    writeFileAtomic(
+      sentLedgerPath,
+      stringify({ entries: sentLedger }, { lineWidth: 120 }),
+    )
+  }
+
+  if (successfulReplyCount > 0) {
+    persistentProcessed = new Set([...persistentProcessed, ...processedNotifIds, ...getLedgerProcessedIds()])
+  }
+
   // Remove processed items from inbox
   let inboxIdsRemoved: string[] = []
   if (processedNotifIds.length > 0 && existsSync(inboxPath)) {
@@ -323,10 +457,10 @@ export async function dispatch(opts: {
   writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved }, { lineWidth: 120 }))
 
   // Persist processed set for future cycles
-  const newProcessed = new Set([...persistentProcessed, ...processedNotifIds])
+  const newProcessed = new Set([...persistentProcessed, ...processedNotifIds, ...getLedgerProcessedIds()])
   writeFileAtomic(
     processedPath,
-    stringify({ processed: [...newProcessed] }, { lineWidth: 120 }),
+    stringify({ processed: Array.from(newProcessed).sort() }, { lineWidth: 120 }),
   )
 
   const ok = results.filter((r) => r.status === "ok").length

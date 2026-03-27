@@ -10,14 +10,18 @@ export interface OutboxAction {
     platform: string
     id: string
     text: string
+    notificationId?: string
+    idempotencyKey?: string
   }
   post?: {
     text?: string
     platforms?: string[] | Record<string, string>
+    idempotencyKey?: string
   }
   thread?: {
     platform: string
     posts: string[]
+    idempotencyKey?: string
   }
   annotate?: {
     platform: string
