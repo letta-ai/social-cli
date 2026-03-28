@@ -41,6 +41,10 @@ function replyKey(platform: string, targetId: string, text: string, idempotencyK
   return idempotencyKey ?? `reply:${platform}:${targetId}:${hashText(text)}`
 }
 
+function replyTargetKey(platform: string, targetId: string): string {
+  return `reply-target:${platform}:${targetId}`
+}
+
 function postKey(platform: string, text: string, idempotencyKey?: string): string {
   return idempotencyKey ?? `post:${platform}:${hashText(text)}`
 }
@@ -84,11 +88,17 @@ export async function dispatch(opts: {
   const sentLedgerPath = resolve(process.cwd(), "sent_ledger.yaml")
   let sentLedger: SentLedgerEntry[] = []
   let sentKeys = new Set<string>()
+  let sentReplyTargets = new Set<string>()
   if (existsSync(sentLedgerPath)) {
     try {
       const sentData = parse(readFileSync(sentLedgerPath, "utf-8")) as { entries?: SentLedgerEntry[] }
       sentLedger = sentData?.entries ?? []
       sentKeys = new Set(sentLedger.map((entry) => entry.key))
+      sentReplyTargets = new Set(
+        sentLedger
+          .filter((entry) => entry.action === "reply" && entry.targetId)
+          .map((entry) => replyTargetKey(entry.platform, entry.targetId!)),
+      )
     } catch {
       // Best effort only
     }
@@ -119,13 +129,8 @@ export async function dispatch(opts: {
     }
 
     if (action.reply) {
-      const key = replyKey(
-        action.reply.platform,
-        action.reply.id,
-        action.reply.text,
-        action.reply.idempotencyKey,
-      )
-      if (sentKeys.has(key)) {
+      const targetKey = replyTargetKey(action.reply.platform, action.reply.id)
+      if (sentReplyTargets.has(targetKey)) {
         preflightErrors.push(`Replay detected for reply target: ${action.reply.id}`)
       }
     }
