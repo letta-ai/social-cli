@@ -24,6 +24,23 @@ export interface AnnotateOpts {
   quote?: string
 }
 
+export interface NotificationMediaVariant {
+  contentType: string
+  url: string
+  bitRate?: number
+}
+
+export interface NotificationMedia {
+  mediaKey: string
+  type: string
+  url?: string
+  previewImageUrl?: string
+  altText?: string
+  width?: number
+  height?: number
+  variants?: NotificationMediaVariant[]
+}
+
 export interface Notification {
   id: string
   platform: string
@@ -35,6 +52,7 @@ export interface Notification {
   timestamp: string
   threadContext?: { author: string; text: string }[]
   userContext?: string
+  media?: NotificationMedia[]
 }
 
 export interface SearchResult {

@@ -10,6 +10,7 @@ import type {
   PostOpts,
   PostResult,
   Notification,
+  NotificationMedia,
   NotifOpts,
   SearchResult,
   FeedItem,
@@ -98,8 +99,18 @@ export const x: SocialPlatform = {
     const me = await client.v2.me()
     const params: Record<string, unknown> = {
       max_results: Math.min(limit, 100),
-      "tweet.fields": ["created_at", "author_id", "conversation_id"],
-      expansions: ["author_id"],
+      "tweet.fields": ["created_at", "author_id", "conversation_id", "attachments", "referenced_tweets"],
+      expansions: ["author_id", "attachments.media_keys", "referenced_tweets.id", "referenced_tweets.id.author_id"],
+      "media.fields": [
+        "media_key",
+        "type",
+        "url",
+        "preview_image_url",
+        "alt_text",
+        "width",
+        "height",
+        "variants",
+      ],
     }
     // Pass cursor as since_id — X returns only tweets newer than this ID
     if (opts?.cursor) params.since_id = opts.cursor
@@ -113,8 +124,61 @@ export const x: SocialPlatform = {
       }
     }
 
+    // Build a map of referenced tweets for thread context
+    const tweetsById = new Map<string, { id: string; text: string; authorId: string }>()
+    if (mentions.includes?.tweets) {
+      for (const t of mentions.includes.tweets) {
+        tweetsById.set(t.id, {
+          id: t.id,
+          text: t.text,
+          authorId: t.author_id ?? "",
+        })
+      }
+    }
+
+    const mediaByKey = new Map<string, NotificationMedia>()
+    if (mentions.includes?.media) {
+      for (const media of mentions.includes.media) {
+        mediaByKey.set(media.media_key, {
+          mediaKey: media.media_key,
+          type: media.type,
+          url: media.url,
+          previewImageUrl: media.preview_image_url,
+          altText: media.alt_text,
+          width: media.width,
+          height: media.height,
+          variants: media.variants?.map((variant) => ({
+            contentType: variant.content_type,
+            url: variant.url,
+            bitRate: variant.bit_rate,
+          })),
+        })
+      }
+    }
+
     const notifs: Notification[] = []
     for (const tweet of mentions.data?.data ?? []) {
+      const media = (tweet.attachments?.media_keys ?? [])
+        .map((mediaKey) => mediaByKey.get(mediaKey))
+        .filter((item): item is NotificationMedia => item !== undefined)
+
+      // Build thread context from referenced tweets (replies)
+      const threadContext: { author: string; text: string }[] = []
+      const referenced = (tweet as any).referenced_tweets as Array<{ type: string; id: string }> | undefined
+      if (referenced) {
+        // Find the parent tweet (replied_to)
+        const parentRef = referenced.find((r) => r.type === "replied_to")
+        if (parentRef) {
+          const parentTweet = tweetsById.get(parentRef.id)
+          if (parentTweet) {
+            threadContext.push({
+              author: authors[parentTweet.authorId] ?? "unknown",
+              text: parentTweet.text,
+            })
+          }
+        }
+      }
+
       notifs.push({
         id: tweet.id,
         platform: "x",
@@ -124,6 +188,8 @@ export const x: SocialPlatform = {
         postId: tweet.id,
         text: tweet.text,
         timestamp: tweet.created_at ?? new Date().toISOString(),
+        ...(media.length > 0 ? { media } : {}),
+        ...(threadContext.length > 0 ? { threadContext } : {}),
       })
     }
 
