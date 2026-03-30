@@ -164,7 +164,7 @@ export const x: SocialPlatform = {
 
       // Build thread context from referenced tweets (replies)
       const threadContext: { author: string; text: string }[] = []
-      const referenced = (tweet as any).referenced_tweets as Array<{ type: string; id: string }> | undefined
+      const referenced = tweet.referenced_tweets
       if (referenced) {
         // Find the parent tweet (replied_to)
         const parentRef = referenced.find((r) => r.type === "replied_to")
