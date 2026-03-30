@@ -98,6 +98,10 @@ dispatch:
       motivation: commenting
       quote: "exact text to anchor to"
 
+  - like:
+      platform: bsky
+      id: "at://did:plc:xxx/app.bsky.feed.post/abc"
+
   - ignore:
       id: "notif_003"
       reason: "spam"

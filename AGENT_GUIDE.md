@@ -118,6 +118,11 @@ dispatch:
       motivation: commenting
       quote: "exact text from the page to anchor to"
 
+  # Like a post
+  - like:
+      platform: bsky
+      id: "at://did:plc:xxx/app.bsky.feed.post/abc"
+
   # Skip a notification (removes it from inbox)
   - ignore:
       id: "notif_003"
