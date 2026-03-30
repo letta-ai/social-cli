@@ -385,6 +385,23 @@ export async function dispatch(opts: {
       }
     }
 
+    if (action.like) {
+      const l = action.like
+      try {
+        const platform = await getPlatformAsync(l.platform)
+        if (!platform.like) {
+          throw new Error(`Platform ${l.platform} does not support like`)
+        }
+        await platform.like(l.id)
+        results.push({ action: "like", platform: l.platform, status: "ok", targetId: l.id })
+        console.log(`Liked on ${l.platform}: ${l.id}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        results.push({ action: "like", platform: l.platform, status: "error", targetId: l.id, error: msg })
+        console.error(`Like failed on ${l.platform}: ${msg}`)
+      }
+    }
+
     if (action.annotate) {
       const a = action.annotate
       try {
