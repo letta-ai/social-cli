@@ -5,6 +5,8 @@
 
 import { Agent, CredentialSession, RichText, AppBskyFeedPost, ComAtprotoRepoStrongRef } from "@atproto/api"
 import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { extname } from "node:path"
 import type {
   SocialPlatform,
   PostOpts,
@@ -372,6 +374,55 @@ export const bluesky: SocialPlatform = {
         followingCount: profile.data.followsCount,
         postsCount: profile.data.postsCount,
       }
+    })
+  },
+
+  async updateProfile(opts: { avatar?: string; displayName?: string; description?: string }): Promise<void> {
+    return withSession(async (agent) => {
+      const did = agent.did
+      if (!did) throw new Error("Cannot determine DID for profile update")
+
+      // Fetch existing profile record so we don't clobber fields
+      let existing: Record<string, any> = {}
+      try {
+        const res = await agent.com.atproto.repo.getRecord({
+          repo: did,
+          collection: "app.bsky.actor.profile",
+          rkey: "self",
+        })
+        existing = (res.data.value as Record<string, any>) ?? {}
+      } catch {
+        // No existing profile record — start fresh
+      }
+
+      const record: Record<string, any> = {
+        $type: "app.bsky.actor.profile",
+        ...existing,
+      }
+
+      if (opts.displayName !== undefined) record.displayName = opts.displayName
+      if (opts.description !== undefined) record.description = opts.description
+
+      if (opts.avatar) {
+        const imageBytes = readFileSync(opts.avatar)
+        const ext = extname(opts.avatar).toLowerCase()
+        const mimeTypes: Record<string, string> = {
+          ".png": "image/png",
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg",
+          ".webp": "image/webp",
+        }
+        const encoding = mimeTypes[ext] ?? "image/png"
+        const blob = await agent.uploadBlob(imageBytes, { encoding })
+        record.avatar = blob.data.blob
+      }
+
+      await agent.com.atproto.repo.putRecord({
+        repo: did,
+        collection: "app.bsky.actor.profile",
+        rkey: "self",
+        record,
+      })
     })
   },
 }

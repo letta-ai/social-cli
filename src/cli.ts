@@ -292,4 +292,31 @@ program
     process.stdout.write(stringify(info))
   })
 
+// update-profile: Update profile fields
+program
+  .command("update-profile")
+  .description("Update profile (avatar, display name, bio)")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .option("--avatar <path>", "Path to avatar image (png/jpg/webp)")
+  .option("--display-name <name>", "Display name")
+  .option("--bio <text>", "Bio / description")
+  .action(async (opts) => {
+    if (!opts.avatar && opts.displayName === undefined && opts.bio === undefined) {
+      console.error("At least one of --avatar, --display-name, or --bio is required")
+      process.exit(1)
+    }
+    const { getPlatformAsync } = await import("./platforms/index.js")
+    const platform = await getPlatformAsync(opts.platform)
+    if (!platform.updateProfile) {
+      console.error(`Platform ${opts.platform} does not support profile updates`)
+      process.exit(1)
+    }
+    await platform.updateProfile({
+      avatar: opts.avatar,
+      displayName: opts.displayName,
+      description: opts.bio,
+    })
+    console.log("Profile updated.")
+  })
+
 program.parse()
