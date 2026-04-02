@@ -4,7 +4,7 @@
  * Posts via OAuth 1.0a (free tier requires user context).
  */
 
-import { TwitterApi } from "twitter-api-v2"
+import { TwitterApi, type TweetV2, type UserV2 } from "twitter-api-v2"
 import type {
   SocialPlatform,
   PostOpts,
@@ -45,6 +45,113 @@ function getClient(): TwitterApi {
   })
 
   return _client
+}
+
+const X_CONTEXT_TWEET_FIELDS = ["created_at", "author_id", "conversation_id", "referenced_tweets"] as const
+const X_CONTEXT_EXPANSIONS = ["author_id", "referenced_tweets.id", "referenced_tweets.id.author_id"] as const
+const MAX_THREAD_CONTEXT_DEPTH = 5
+
+type XContextTweet = Pick<TweetV2, "id" | "text" | "author_id" | "conversation_id" | "referenced_tweets">
+
+function addUsersToAuthorMap(authors: Record<string, string>, users?: UserV2[]): void {
+  if (!users) return
+  for (const user of users) {
+    authors[user.id] = user.username
+  }
+}
+
+function addTweetsToMap(tweetsById: Map<string, XContextTweet>, tweets?: TweetV2[]): void {
+  if (!tweets) return
+  for (const tweet of tweets) {
+    tweetsById.set(tweet.id, {
+      id: tweet.id,
+      text: tweet.text,
+      author_id: tweet.author_id,
+      conversation_id: tweet.conversation_id,
+      referenced_tweets: tweet.referenced_tweets,
+    })
+  }
+}
+
+function repliedToId(tweet: Pick<TweetV2, "referenced_tweets">): string | undefined {
+  return tweet.referenced_tweets?.find((ref) => ref.type === "replied_to")?.id
+}
+
+function quotedId(tweet: Pick<TweetV2, "referenced_tweets">): string | undefined {
+  return tweet.referenced_tweets?.find((ref) => ref.type === "quoted")?.id
+}
+
+function toContextEntry(
+  tweet: Pick<TweetV2, "id" | "text" | "author_id">,
+  authors: Record<string, string>,
+): { id: string; author: string; text: string } {
+  return {
+    id: tweet.id,
+    author: authors[tweet.author_id ?? ""] ?? "unknown",
+    text: tweet.text,
+  }
+}
+
+async function hydrateContextTweets(
+  client: TwitterApi,
+  ids: string[],
+  tweetsById: Map<string, XContextTweet>,
+  authors: Record<string, string>,
+): Promise<void> {
+  const missingIds = [...new Set(ids)].filter((id) => id && !tweetsById.has(id))
+  if (missingIds.length === 0) return
+
+  for (let i = 0; i < missingIds.length; i += 100) {
+    const batch = missingIds.slice(i, i + 100)
+    const result = await withRetry(() =>
+      client.v2.tweets(batch, {
+        "tweet.fields": [...X_CONTEXT_TWEET_FIELDS],
+        expansions: [...X_CONTEXT_EXPANSIONS],
+      }),
+    )
+
+    addUsersToAuthorMap(authors, result.includes?.users)
+    addTweetsToMap(tweetsById, result.data)
+  }
+}
+
+function buildReplyContext(
+  tweet: Pick<TweetV2, "referenced_tweets">,
+  tweetsById: Map<string, XContextTweet>,
+  authors: Record<string, string>,
+): { id: string; author: string; text: string }[] {
+  const chain: { id: string; author: string; text: string }[] = []
+  const seen = new Set<string>()
+  let currentId = repliedToId(tweet)
+
+  while (currentId && !seen.has(currentId) && chain.length < MAX_THREAD_CONTEXT_DEPTH) {
+    seen.add(currentId)
+    const current = tweetsById.get(currentId)
+    if (!current) break
+    chain.unshift(toContextEntry(current, authors))
+    currentId = repliedToId(current)
+  }
+
+  return chain
+}
+
+function buildThreadContext(
+  tweet: Pick<TweetV2, "referenced_tweets">,
+  tweetsById: Map<string, XContextTweet>,
+  authors: Record<string, string>,
+): { author: string; text: string }[] {
+  const context = buildReplyContext(tweet, tweetsById, authors)
+  const seen = new Set(context.map((entry) => entry.id))
+  const quoteTweetId = quotedId(tweet)
+
+  if (quoteTweetId) {
+    const quoteTweet = tweetsById.get(quoteTweetId)
+    if (quoteTweet && !seen.has(quoteTweet.id)) {
+      context.push(toContextEntry(quoteTweet, authors))
+    }
+  }
+
+  return context.map(({ author, text }) => ({ author, text }))
 }
 
 export const x: SocialPlatform = {
@@ -99,8 +206,8 @@ export const x: SocialPlatform = {
     const me = await client.v2.me()
     const params: Record<string, unknown> = {
       max_results: Math.min(limit, 100),
-      "tweet.fields": ["created_at", "author_id", "conversation_id", "attachments", "referenced_tweets"],
-      expansions: ["author_id", "attachments.media_keys", "referenced_tweets.id", "referenced_tweets.id.author_id"],
+      "tweet.fields": [...X_CONTEXT_TWEET_FIELDS, "attachments"],
+      expansions: [...X_CONTEXT_EXPANSIONS, "attachments.media_keys"],
       "media.fields": [
         "media_key",
         "type",
@@ -118,22 +225,33 @@ export const x: SocialPlatform = {
     const mentions = await withRetry(() => client.v2.userMentionTimeline(me.data.id, params))
 
     const authors: Record<string, string> = {}
-    if (mentions.includes?.users) {
-      for (const u of mentions.includes.users) {
-        authors[u.id] = u.username
-      }
-    }
+    addUsersToAuthorMap(authors, mentions.includes?.users)
 
-    // Build a map of referenced tweets for thread context
-    const tweetsById = new Map<string, { id: string; text: string; authorId: string }>()
-    if (mentions.includes?.tweets) {
-      for (const t of mentions.includes.tweets) {
-        tweetsById.set(t.id, {
-          id: t.id,
-          text: t.text,
-          authorId: t.author_id ?? "",
-        })
+    const tweetsById = new Map<string, XContextTweet>()
+    addTweetsToMap(tweetsById, mentions.includes?.tweets)
+    addTweetsToMap(tweetsById, mentions.data?.data)
+
+    let frontier = [...new Set(
+      (mentions.data?.data ?? []).flatMap((tweet) => {
+        const ids: string[] = []
+        const parentId = repliedToId(tweet)
+        const quoteTweetId = quotedId(tweet)
+        if (parentId && !tweetsById.has(parentId)) ids.push(parentId)
+        if (quoteTweetId && !tweetsById.has(quoteTweetId)) ids.push(quoteTweetId)
+        return ids
+      }),
+    )]
+
+    for (let depth = 0; depth < MAX_THREAD_CONTEXT_DEPTH && frontier.length > 0; depth++) {
+      await hydrateContextTweets(client, frontier, tweetsById, authors)
+
+      const nextFrontier = new Set<string>()
+      for (const tweetId of frontier) {
+        const tweet = tweetsById.get(tweetId)
+        const parentId = tweet ? repliedToId(tweet) : undefined
+        if (parentId && !tweetsById.has(parentId)) nextFrontier.add(parentId)
       }
+      frontier = [...nextFrontier]
     }
 
     const mediaByKey = new Map<string, NotificationMedia>()
@@ -162,22 +280,7 @@ export const x: SocialPlatform = {
         .map((mediaKey) => mediaByKey.get(mediaKey))
         .filter((item): item is NotificationMedia => item !== undefined)
 
-      // Build thread context from referenced tweets (replies)
-      const threadContext: { author: string; text: string }[] = []
-      const referenced = tweet.referenced_tweets
-      if (referenced) {
-        // Find the parent tweet (replied_to)
-        const parentRef = referenced.find((r) => r.type === "replied_to")
-        if (parentRef) {
-          const parentTweet = tweetsById.get(parentRef.id)
-          if (parentTweet) {
-            threadContext.push({
-              author: authors[parentTweet.authorId] ?? "unknown",
-              text: parentTweet.text,
-            })
-          }
-        }
-      }
+      const threadContext = buildThreadContext(tweet, tweetsById, authors)
 
       notifs.push({
         id: tweet.id,
