@@ -2,7 +2,7 @@
  * sync: Fetch notifications from all configured platforms → inbox.yaml
  */
 
-import { readFileSync, existsSync, readdirSync } from "node:fs"
+import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from "node:fs"
 import { resolve, join } from "node:path"
 import { stringify, parse } from "yaml"
 import { getPlatformAsync, availablePlatforms } from "../platforms/index.js"
@@ -17,6 +17,7 @@ interface InboxFile {
     unreadOnly: boolean
     usersDir?: string
     usersMatched?: number
+    usersCreated?: number
     newCount: number
     totalCount: number
     dropped?: number
@@ -64,6 +65,45 @@ function buildUserIndex(usersDir: string): Map<string, Map<string, string>> {
 const PLATFORM_DIR_ALIASES: Record<string, string[]> = {
   bsky: ["bsky", "bluesky", "atproto"],
   x: ["x", "twitter"],
+}
+
+function primaryPlatformDir(platform: string): string {
+  return (PLATFORM_DIR_ALIASES[platform] ?? [platform])[0]
+}
+
+function normalizeHandle(handle: string): string {
+  return handle.trim().replace(/^@+/, "").toLowerCase()
+}
+
+function userFilePath(handle: string, platform: string, usersDir: string): string {
+  return join(usersDir, primaryPlatformDir(platform), `${normalizeHandle(handle)}.md`)
+}
+
+function buildUserStub(handle: string, platform: string, timestamp?: string): string {
+  const normalized = normalizeHandle(handle)
+  const date = timestamp ? new Date(timestamp).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  const platformLabel = platform === "x" ? "X" : platform.toUpperCase()
+
+  return `---
+description: User block for ${normalized} on ${platformLabel}
+---
+# User: @${normalized}
+
+## Interaction History
+- **${date}:** Profile initialized via automated sync discovery.
+`
+}
+
+function autoCreateUserFile(handle: string, platform: string, usersDir: string, timestamp?: string): string | null {
+  const normalized = normalizeHandle(handle)
+  if (!normalized) return null
+
+  const filePath = userFilePath(normalized, platform, usersDir)
+  if (existsSync(filePath)) return filePath
+
+  mkdirSync(join(usersDir, primaryPlatformDir(platform)), { recursive: true })
+  writeFileSync(filePath, buildUserStub(normalized, platform, timestamp), "utf-8")
+  return filePath
 }
 
 /** Exact lookup by a single key against platform-specific then flat dirs. */
@@ -114,6 +154,7 @@ export async function sync(opts: {
   output?: string
   maxItems?: number
   usersDir?: string
+  autoCreateUsers?: boolean
   /** Clear cursors and re-fetch all notifications from scratch. */
   reset?: boolean
   /** Clear both cursors and the local inbox for a fully fresh start. */
@@ -185,11 +226,28 @@ export async function sync(opts: {
 
   // Enrich with user context if --users-dir provided
   let usersMatched = 0
+  let usersCreated = 0
   if (opts.usersDir) {
     const userIndex = buildUserIndex(opts.usersDir)
     for (const notif of capped as Array<Notification & { userContext?: string }>) {
       if (!notif.author) continue
-      const filePath = lookupUser(notif.author, notif.authorId, notif.platform, userIndex)
+
+      let filePath = lookupUser(notif.author, notif.authorId, notif.platform, userIndex)
+
+      if (!filePath && opts.autoCreateUsers) {
+        try {
+          filePath = autoCreateUserFile(notif.author, notif.platform, opts.usersDir, notif.timestamp)
+          if (filePath) {
+            const dir = primaryPlatformDir(notif.platform)
+            if (!userIndex.has(dir)) userIndex.set(dir, new Map())
+            userIndex.get(dir)!.set(normalizeHandle(notif.author), filePath)
+            usersCreated++
+          }
+        } catch {
+          // Skip files that could not be created
+        }
+      }
+
       if (filePath) {
         try {
           notif.userContext = readFileSync(filePath, "utf-8")
@@ -211,13 +269,17 @@ export async function sync(opts: {
       totalCount: capped.length,
       cursors,
       ...(dropped > 0 ? { dropped } : {}),
-      ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched } : {}),
+      ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched, ...(usersCreated > 0 ? { usersCreated } : {}) } : {}),
     },
   }
 
   writeFileAtomic(outputPath, stringify(inbox, { lineWidth: 120 }))
   let msg = `Synced ${newCount} new notifications (${capped.length} pending total) → ${outputPath}`
   if (dropped > 0) msg += ` (${dropped} oldest dropped, cap: ${maxItems})`
-  if (opts.usersDir) msg += ` (${usersMatched} users matched)`
+  if (opts.usersDir) {
+    msg += ` (${usersMatched} users matched`
+    if (usersCreated > 0) msg += `, ${usersCreated} created`
+    msg += `)`
+  }
   console.log(msg)
 }
