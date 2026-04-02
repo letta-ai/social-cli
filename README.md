@@ -58,6 +58,7 @@ social-cli reply "Thanks" --id at://did:plc:.../app.bsky.feed.post/abc -p bsky
 social-cli thread "Post 1" "Post 2" "Post 3" -p x
 social-cli like at://did:plc:.../app.bsky.feed.post/abc -p bsky
 social-cli delete at://did:plc:.../app.bsky.feed.post/abc -p bsky
+social-cli follow alice.bsky.social -p bsky
 social-cli annotate "Interesting point" --target https://example.com --quote "exact text"
 ```
 
@@ -66,9 +67,33 @@ social-cli annotate "Interesting point" --target https://example.com --quote "ex
 ```bash
 social-cli search "query" -p bsky -n 10     # → stdout YAML
 social-cli feed -p bsky -n 20               # → feed.yaml (or -o - for stdout)
+social-cli feed --feed "at://did:.../app.bsky.feed.generator/name" -n 10  # custom feed
+social-cli posts alice.bsky.social -n 10     # → stdout YAML
+social-cli profile alice.bsky.social         # → stdout YAML
 social-cli rate-limits                       # → stdout YAML
 social-cli whoami                            # → stdout YAML (all platforms)
 ```
+
+### Profile management
+
+```bash
+social-cli update-profile --display-name "Name" --bio "About me" -p bsky
+social-cli update-profile --avatar ./photo.png -p bsky
+```
+
+### Embed data
+
+Posts in feed, search, posts, and notification output include an `embed` field when the post has attachments:
+
+```yaml
+embed:
+  type: external          # external | images | record | recordWithMedia
+  uri: https://example.com/article
+  title: Article Title
+  description: Summary text
+```
+
+Quoted posts surface as `record` embeds with `quotedUri`, `quotedText`, and `quotedAuthor`.
 
 ## Outbox format
 
