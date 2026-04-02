@@ -53,6 +53,25 @@ export interface Notification {
   threadContext?: { author: string; text: string }[]
   userContext?: string
   media?: NotificationMedia[]
+  embed?: EmbedInfo
+}
+
+export interface EmbedInfo {
+  type: "external" | "images" | "record" | "recordWithMedia"
+  /** External link URL. */
+  uri?: string
+  /** External link title. */
+  title?: string
+  /** External link description. */
+  description?: string
+  /** Attached images. */
+  images?: { alt: string; url?: string }[]
+  /** Quoted post AT-URI. */
+  quotedUri?: string
+  /** Quoted post text (truncated). */
+  quotedText?: string
+  /** Quoted post author handle. */
+  quotedAuthor?: string
 }
 
 export interface SearchResult {
@@ -61,6 +80,7 @@ export interface SearchResult {
   author: string
   text: string
   timestamp: string
+  embed?: EmbedInfo
 }
 
 export interface FeedItem {
@@ -72,6 +92,7 @@ export interface FeedItem {
   likeCount?: number
   replyCount?: number
   repostCount?: number
+  embed?: EmbedInfo
 }
 
 export interface RateLimitInfo {
