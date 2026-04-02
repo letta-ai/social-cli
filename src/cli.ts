@@ -77,16 +77,18 @@ program
 // feed: Read timeline
 program
   .command("feed")
-  .description("Fetch timeline → feed.yaml")
+  .description("Fetch timeline or custom feed → feed.yaml")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("-n, --limit <number>", "Max posts", "50")
   .option("-o, --output <file>", "Output file", "feed.yaml")
+  .option("--feed <uri>", "Feed generator AT-URI (e.g. at://did:plc:.../app.bsky.feed.generator/my-feed)")
   .action(async (opts) => {
     const { feed } = await import("./commands/feed.js")
     await feed({
       platform: opts.platform,
       limit: parseInt(opts.limit),
       output: opts.output,
+      feed: opts.feed,
     })
   })
 

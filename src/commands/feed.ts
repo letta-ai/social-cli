@@ -11,9 +11,10 @@ export async function feed(opts: {
   platform?: string
   limit?: number
   output?: string
+  feed?: string
 }): Promise<void> {
   const platform = await getPlatformAsync(opts.platform ?? "bsky")
-  const items = await platform.feed(opts.limit ?? 50)
+  const items = await platform.feed(opts.limit ?? 50, opts.feed)
   const output = opts.output ?? "feed.yaml"
   const content = stringify(items, { lineWidth: 120 })
 

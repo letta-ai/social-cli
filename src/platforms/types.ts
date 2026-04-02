@@ -113,7 +113,7 @@ export interface SocialPlatform {
   thread(posts: string[]): Promise<PostResult[]>
   notifications(opts?: NotifOpts): Promise<NotifResult>
   search(query: string, limit?: number): Promise<SearchResult[]>
-  feed(limit?: number): Promise<FeedItem[]>
+  feed(limit?: number, feedUri?: string): Promise<FeedItem[]>
   rateLimitStatus(): Promise<RateLimitInfo>
 
   /** Delete a post by ID/URI. */

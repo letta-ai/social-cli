@@ -228,9 +228,11 @@ export const bluesky: SocialPlatform = {
     })
   },
 
-  async feed(limit = 50): Promise<FeedItem[]> {
+  async feed(limit = 50, feedUri?: string): Promise<FeedItem[]> {
     return withSession(async (agent) => {
-      const res = await agent.getTimeline({ limit })
+      const res = feedUri
+        ? await agent.app.bsky.feed.getFeed({ feed: feedUri, limit })
+        : await agent.getTimeline({ limit })
       return res.data.feed.map((item) => ({
         platform: "bsky",
         id: item.post.uri,
