@@ -18,6 +18,7 @@ import type {
   RateLimitInfo,
   AnnotateOpts,
   ProfileInfo,
+  EmbedInfo,
 } from "./types.js"
 import { loadConfig, loadCredentials } from "../config.js"
 import { withRetry } from "../util/retry.js"
@@ -80,6 +81,68 @@ async function withSession<T>(fn: (agent: Agent) => Promise<T>): Promise<T> {
       throw err
     }
   })
+}
+
+/** Extract embed info from a post's embed view object. */
+function extractEmbed(embed: any): EmbedInfo | undefined {
+  if (!embed?.$type) return undefined
+
+  switch (embed.$type) {
+    case "app.bsky.embed.external#view":
+      return {
+        type: "external",
+        uri: embed.external?.uri,
+        title: embed.external?.title,
+        description: embed.external?.description || undefined,
+      }
+
+    case "app.bsky.embed.images#view":
+      return {
+        type: "images",
+        images: embed.images?.map((img: any) => ({
+          alt: img.alt ?? "",
+          url: img.fullsize ?? img.thumb,
+        })),
+      }
+
+    case "app.bsky.embed.record#view": {
+      const rec = embed.record?.record ?? embed.record
+      return {
+        type: "record",
+        quotedUri: rec?.uri,
+        quotedText: (rec?.value?.text ?? rec?.text) || undefined,
+        quotedAuthor: rec?.author?.handle,
+      }
+    }
+
+    case "app.bsky.embed.recordWithMedia#view": {
+      // Combination of record + media (images or external link)
+      const info: EmbedInfo = { type: "recordWithMedia" }
+      // Extract the record portion
+      const innerRec = embed.record?.record ?? embed.record
+      if (innerRec) {
+        info.quotedUri = innerRec.uri
+        info.quotedText = (innerRec.value?.text ?? innerRec.text) || undefined
+        info.quotedAuthor = innerRec.author?.handle
+      }
+      // Extract the media portion
+      const media = embed.media
+      if (media?.$type === "app.bsky.embed.images#view") {
+        info.images = media.images?.map((img: any) => ({
+          alt: img.alt ?? "",
+          url: img.fullsize ?? img.thumb,
+        }))
+      } else if (media?.$type === "app.bsky.embed.external#view") {
+        info.uri = media.external?.uri
+        info.title = media.external?.title
+        info.description = media.external?.description || undefined
+      }
+      return info
+    }
+
+    default:
+      return undefined
+  }
 }
 
 export const bluesky: SocialPlatform = {
@@ -191,8 +254,13 @@ export const bluesky: SocialPlatform = {
             depth: 0,
             parentHeight: 5,
           })
+          const thread = threadRes.data.thread as any
+          // Extract embed from the notification's own post
+          if (thread?.post?.embed) {
+            item.embed = extractEmbed(thread.post.embed)
+          }
           const context: { author: string; text: string }[] = []
-          let curr = threadRes.data.thread as any
+          let curr = thread
           while (curr?.parent) {
             curr = curr.parent
             if (curr?.post?.record?.text) {
@@ -224,6 +292,7 @@ export const bluesky: SocialPlatform = {
         author: p.author.handle,
         text: (p.record as any).text ?? "",
         timestamp: p.indexedAt,
+        embed: extractEmbed(p.embed),
       }))
     })
   },
@@ -240,6 +309,7 @@ export const bluesky: SocialPlatform = {
         likeCount: item.post.likeCount ?? 0,
         replyCount: item.post.replyCount ?? 0,
         repostCount: item.post.repostCount ?? 0,
+        embed: extractEmbed(item.post.embed),
       }))
     })
   },
@@ -349,6 +419,7 @@ export const bluesky: SocialPlatform = {
         likeCount: item.post.likeCount ?? 0,
         replyCount: item.post.replyCount ?? 0,
         repostCount: item.post.repostCount ?? 0,
+        embed: extractEmbed(item.post.embed),
       }))
     })
   },
