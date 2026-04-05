@@ -274,6 +274,24 @@ program
     console.log(`Followed: ${cleanHandle}`)
   })
 
+// block: Block a user
+program
+  .command("block")
+  .description("Block a user by handle")
+  .argument("<handle>", "User handle (e.g. spam.bsky.social, @spam.bsky.social)")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .action(async (handle, opts) => {
+    const { getPlatformAsync } = await import("./platforms/index.js")
+    const platform = await getPlatformAsync(opts.platform)
+    if (!platform.block) {
+      console.error(`Platform ${opts.platform} does not support block`)
+      process.exit(1)
+    }
+    const cleanHandle = handle.replace(/^@/, "")
+    await platform.block(cleanHandle)
+    console.log(`Blocked: ${cleanHandle}`)
+  })
+
 // profile: Look up a user
 program
   .command("profile")
