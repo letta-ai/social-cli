@@ -151,6 +151,8 @@ export interface SocialPlatform {
   annotate?(targetId: string, text: string, opts?: AnnotateOpts): Promise<PostResult>
   /** Follow a user by handle or DID. */
   follow?(handle: string): Promise<void>
+  /** Block a user by handle or DID. */
+  block?(handle: string): Promise<void>
   /** Update profile fields (avatar, display name, bio). */
   updateProfile?(opts: { avatar?: string; displayName?: string; description?: string }): Promise<void>
 }
