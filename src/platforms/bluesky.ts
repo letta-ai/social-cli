@@ -228,6 +228,18 @@ export const bluesky: SocialPlatform = {
     if (opts?.cursor) params.cursor = opts.cursor
     const res = await agent.app.bsky.notification.listNotifications(params)
 
+    // Fetch blocklist once for all notifications
+    let blockedDids: Set<string> | null = null
+    try {
+      const did = agent.did
+      if (did) {
+        const blockRes = await agent.app.bsky.graph.getBlocks({ limit: 100 })
+        blockedDids = new Set(blockRes.data.blocks.map((b) => b.did))
+      }
+    } catch {
+      // Blocklist fetch is best-effort
+    }
+
     const notifs: Notification[] = []
     for (const n of res.data.notifications) {
       // Skip passive engagement
@@ -244,6 +256,7 @@ export const bluesky: SocialPlatform = {
         postId: n.uri,
         text: record?.text ?? "",
         timestamp: n.indexedAt,
+        blocked: blockedDids?.has(n.author.did) ?? false,
       }
 
       // Fetch thread context for replies/quotes/mentions
@@ -496,6 +509,24 @@ export const bluesky: SocialPlatform = {
         rkey: "self",
         record,
       })
+    })
+  },
+
+  async getBlocklist(): Promise<string[]> {
+    return withSession(async (agent) => {
+      const did = agent.did
+      if (!did) throw new Error("Cannot determine DID for blocklist")
+      const blockedDids: string[] = []
+      let cursor: string | undefined
+      do {
+        const res = await agent.app.bsky.graph.getBlocks({
+          limit: 100,
+          cursor,
+        })
+        blockedDids.push(...res.data.blocks.map((b) => b.did))
+        cursor = res.data.cursor
+      } while (cursor)
+      return blockedDids
     })
   },
 }
