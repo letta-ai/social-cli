@@ -437,6 +437,7 @@ export const bluesky: SocialPlatform = {
   async profile(handle: string): Promise<ProfileInfo> {
     return withSession(async (agent) => {
       const profile = await agent.app.bsky.actor.getProfile({ actor: handle })
+      const viewer = profile.data.viewer
       return {
         platform: "bsky",
         handle: profile.data.handle,
@@ -446,6 +447,12 @@ export const bluesky: SocialPlatform = {
         followersCount: profile.data.followersCount,
         followingCount: profile.data.followsCount,
         postsCount: profile.data.postsCount,
+        relationship: viewer
+          ? {
+              following: !!viewer.following,
+              followedBy: !!viewer.followedBy,
+            }
+          : undefined,
       }
     })
   },

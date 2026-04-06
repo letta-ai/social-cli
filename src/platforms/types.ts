@@ -116,6 +116,13 @@ export interface NotifOpts {
   cursor?: string
 }
 
+export interface ProfileRelationship {
+  /** Authenticated user follows target. */
+  following: boolean
+  /** Target follows authenticated user. */
+  followedBy: boolean
+}
+
 export interface ProfileInfo {
   platform: string
   handle: string
@@ -125,6 +132,8 @@ export interface ProfileInfo {
   followersCount?: number
   followingCount?: number
   postsCount?: number
+  /** Bidirectional follow status between authenticated user and target. */
+  relationship?: ProfileRelationship
 }
 
 export interface SocialPlatform {

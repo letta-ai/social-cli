@@ -320,6 +320,24 @@ export const x: SocialPlatform = {
       "user.fields": ["public_metrics", "name", "username", "description"],
     }))
     if (!user.data) throw new Error(`User not found: ${handle}`)
+
+    // Fetch relationship via v1 friendships/lookup
+    let relationship: { following: boolean; followedBy: boolean } | undefined
+    try {
+      const friendships = await withRetry(() =>
+        client.v1.friendships({ screen_name: handle })
+      )
+      if (friendships.length > 0) {
+        const connections = friendships[0].connections
+        relationship = {
+          following: connections.includes("following"),
+          followedBy: connections.includes("followed_by"),
+        }
+      }
+    } catch {
+      // v1 endpoint may not be available; relationship stays undefined
+    }
+
     return {
       platform: "x",
       handle: user.data.username,
@@ -328,6 +346,7 @@ export const x: SocialPlatform = {
       followersCount: (user.data.public_metrics as any)?.followers_count,
       followingCount: (user.data.public_metrics as any)?.following_count,
       postsCount: (user.data.public_metrics as any)?.tweet_count,
+      relationship,
     }
   },
 
