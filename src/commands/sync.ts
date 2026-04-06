@@ -6,6 +6,7 @@ import { readFileSync, existsSync, readdirSync } from "node:fs"
 import { resolve, join } from "node:path"
 import { stringify, parse } from "yaml"
 import { getPlatformAsync, availablePlatforms } from "../platforms/index.js"
+import { loadConfig } from "../config.js"
 import type { Notification } from "../platforms/types.js"
 import { writeFileAtomic } from "../util/fs.js"
 
@@ -120,7 +121,35 @@ export async function sync(opts: {
   clear?: boolean
 }): Promise<void> {
   const outputPath = resolve(process.cwd(), opts.output ?? "inbox.yaml")
-  const targetPlatforms = opts.platforms ?? availablePlatforms()
+
+  // Load config for allowedPlatforms
+  const config = loadConfig()
+  const allowedPlatforms = config.sync?.allowedPlatforms
+
+  // Determine target platforms
+  let targetPlatforms: string[]
+  if (opts.platforms && opts.platforms.length > 0) {
+    // Explicit --platform flags: use those
+    targetPlatforms = opts.platforms
+  } else if (allowedPlatforms && allowedPlatforms.length > 0) {
+    // Config has allowedPlatforms: use those
+    targetPlatforms = allowedPlatforms
+  } else {
+    // No explicit platforms and no config allowlist: fail closed
+    console.error("Error: No platform scope specified.")
+    console.error("Provide --platform <platform> or set sync.allowedPlatforms in config.yaml.")
+    process.exit(1)
+  }
+
+  // Validate that requested platforms are in allowed set (if configured)
+  if (allowedPlatforms && allowedPlatforms.length > 0) {
+    const invalid = targetPlatforms.filter((p) => !allowedPlatforms.includes(p))
+    if (invalid.length > 0) {
+      console.error(`Error: Platform(s) not in allowed set: ${invalid.join(", ")}`)
+      console.error(`Allowed platforms: ${allowedPlatforms.join(", ")}`)
+      process.exit(1)
+    }
+  }
 
   // --clear: wipe everything and start from scratch
   let existing: Notification[] = []

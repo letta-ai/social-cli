@@ -14,8 +14,22 @@ export interface AccountConfig {
   credentials?: string // Path to .env file
 }
 
+export interface SyncConfig {
+  usersDir?: string
+  autoCreateUsers?: boolean
+  /** Allowed platforms for sync. Empty array means require explicit --platform. */
+  allowedPlatforms?: string[]
+}
+
+export interface DispatchConfig {
+  /** Allowed platforms for dispatch. Empty array means allow any platform in outbox. */
+  allowedPlatforms?: string[]
+}
+
 export interface Config {
   accounts: Record<string, AccountConfig>
+  sync?: SyncConfig
+  dispatch?: DispatchConfig
 }
 
 const CONFIG_PATHS = [

@@ -8,6 +8,7 @@ import { resolve, join } from "node:path"
 import { createHash } from "node:crypto"
 import { parse, stringify } from "yaml"
 import { getPlatformAsync } from "../platforms/index.js"
+import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
 import { writeFileAtomic } from "../util/fs.js"
 
@@ -81,6 +82,32 @@ export async function dispatch(opts: {
     for (const e of validation.errors) console.error(`Error: ${e}`)
     console.error(`Validation failed: ${validation.errors.length} error(s)`)
     process.exit(1)
+  }
+
+  // Load config for dispatch allowedPlatforms
+  const config = loadConfig()
+  const allowedPlatforms = config.dispatch?.allowedPlatforms
+
+  // Validate platform scope for each action
+  if (allowedPlatforms && allowedPlatforms.length > 0) {
+    for (const action of outbox.dispatch) {
+      let platform: string | undefined
+      if (action.reply) platform = action.reply.platform
+      else if (action.thread) platform = action.thread.platform
+      else if (action.annotate) platform = action.annotate.platform
+      else if (action.follow) platform = action.follow.platform
+      else if (action.like) platform = action.like.platform
+      else if (action.post?.platforms) {
+        const platforms = action.post.platforms
+        platform = Array.isArray(platforms) ? platforms[0] : Object.keys(platforms)[0]
+      }
+
+      if (platform && !allowedPlatforms.includes(platform)) {
+        console.error(`Error: Platform "${platform}" not in dispatch allowed set.`)
+        console.error(`Allowed platforms: ${allowedPlatforms.join(", ")}`)
+        process.exit(1)
+      }
+    }
   }
 
 
