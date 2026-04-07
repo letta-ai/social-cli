@@ -434,6 +434,25 @@ export const bluesky: SocialPlatform = {
     })
   },
 
+  async block(handle: string): Promise<void> {
+    return withSession(async (agent) => {
+      const cleanHandle = handle.replace(/^@/, "")
+      const res = await agent.resolveHandle({ handle: cleanHandle })
+      const did = agent.did
+      if (!did) throw new Error("Cannot determine own DID for block")
+      await agent.com.atproto.repo.createRecord({
+        repo: did,
+        collection: "app.bsky.graph.block",
+        rkey: res.data.did,
+        record: {
+          $type: "app.bsky.graph.block",
+          subject: res.data.did,
+          createdAt: new Date().toISOString(),
+        },
+      })
+    })
+  },
+
   async profile(handle: string): Promise<ProfileInfo> {
     return withSession(async (agent) => {
       const profile = await agent.app.bsky.actor.getProfile({ actor: handle })
