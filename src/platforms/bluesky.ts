@@ -192,13 +192,23 @@ export const bluesky: SocialPlatform = {
     })
   },
 
-  async thread(posts: string[]): Promise<PostResult[]> {
+  async thread(posts: string[], replyTo?: string): Promise<PostResult[]> {
     // Thread uses withSession for initial auth, but individual posts
     // are retried individually to avoid re-posting successful ones.
     const agent = await getAgent()
     const results: PostResult[] = []
     let parentRef: ComAtprotoRepoStrongRef.Main | null = null
     let rootRef: ComAtprotoRepoStrongRef.Main | null = null
+
+    // If replyTo is provided, resolve it as the initial parent/root
+    if (replyTo) {
+      const parentRes = await agent.app.bsky.feed.getPosts({ uris: [replyTo] })
+      const parent = parentRes.data.posts[0]
+      if (!parent) throw new Error(`Post not found: ${replyTo}`)
+      parentRef = { cid: parent.cid, uri: parent.uri }
+      const record = parent.record as AppBskyFeedPost.Record
+      rootRef = record.reply?.root ?? parentRef
+    }
 
     for (const text of posts) {
       const rt = new RichText({ text })

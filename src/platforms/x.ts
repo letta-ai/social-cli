@@ -70,14 +70,14 @@ export const x: SocialPlatform = {
     }
   },
 
-  async thread(posts: string[]): Promise<PostResult[]> {
+  async thread(posts: string[], replyTo?: string): Promise<PostResult[]> {
     const client = getClient()
     const results: PostResult[] = []
-    let replyTo: string | undefined
+    let currentReplyTo = replyTo
 
     for (const text of posts) {
       const res = await withRetry(() =>
-        replyTo ? client.v2.reply(text, replyTo) : client.v2.tweet(text),
+        currentReplyTo ? client.v2.reply(text, currentReplyTo) : client.v2.tweet(text),
       )
 
       results.push({
@@ -85,7 +85,7 @@ export const x: SocialPlatform = {
         id: res.data.id,
         text: res.data.text,
       })
-      replyTo = res.data.id
+      currentReplyTo = res.data.id
     }
 
     return results

@@ -140,7 +140,8 @@ export interface SocialPlatform {
   name: string
   post(text: string, opts?: PostOpts): Promise<PostResult>
   reply(targetId: string, text: string, opts?: PostOpts): Promise<PostResult>
-  thread(posts: string[]): Promise<PostResult[]>
+  /** Post a thread. If replyTo is provided, the thread is rooted as a reply to that post. */
+  thread(posts: string[], replyTo?: string): Promise<PostResult[]>
   notifications(opts?: NotifOpts): Promise<NotifResult>
   search(query: string, limit?: number): Promise<SearchResult[]>
   feed(limit?: number, feedUri?: string): Promise<FeedItem[]>

@@ -21,6 +21,8 @@ export interface OutboxAction {
   thread?: {
     platform: string
     posts: string[]
+    /** Optional: root the thread as a reply to an existing post. */
+    replyTo?: string
     idempotencyKey?: string
   }
   annotate?: {

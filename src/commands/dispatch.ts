@@ -508,7 +508,7 @@ async function dispatchPlatform(
       const t = action.thread
       try {
         const plat = await getPlatformAsync(t.platform)
-        const res = await plat.thread(t.posts)
+        const res = await plat.thread(t.posts, t.replyTo)
         for (const r of res) {
           results.push({ action: "thread", platform: t.platform, status: "ok", id: r.id })
         }
