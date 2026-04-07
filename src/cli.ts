@@ -360,4 +360,24 @@ program
     console.log("Profile updated.")
   })
 
+// blog: Publish long-form content to GreenGale
+program
+  .command("blog")
+  .description("Publish long-form content to GreenGale (app.greengale.document)")
+  .option("-t, --title <title>", "Post title")
+  .option("-s, --slug <slug>", "URL slug (auto-generated from title if not provided)")
+  .option("--subtitle <subtitle>", "Optional subtitle")
+  .option("-f, --file <path>", "Markdown file to publish (frontmatter supported)")
+  .option("-c, --content <text>", "Raw content (use with --title)")
+  .action(async (opts) => {
+    const { blog } = await import("./commands/blog.js")
+    await blog({
+      title: opts.title,
+      slug: opts.slug,
+      subtitle: opts.subtitle,
+      content: opts.content,
+      file: opts.file,
+    })
+  })
+
 program.parse()
