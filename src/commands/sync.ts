@@ -1,5 +1,10 @@
 /**
- * sync: Fetch notifications from all configured platforms → inbox.yaml
+ * sync: Fetch notifications from all configured platforms → inbox-{platform}.yaml
+ * 
+ * With platform isolation enabled (default), each platform's notifications
+ * are written to a separate inbox file (e.g., inbox-bsky.yaml, inbox-x.yaml).
+ * This prevents accidental mixed-platform pending queues and ensures
+ * replay protection operates unambiguously within platform partitions.
  */
 
 import { readFileSync, existsSync, readdirSync } from "node:fs"
@@ -9,20 +14,29 @@ import { getPlatformAsync, availablePlatforms } from "../platforms/index.js"
 import { loadConfig } from "../config.js"
 import type { Notification } from "../platforms/types.js"
 import { writeFileAtomic } from "../util/fs.js"
+import {
+  getPlatformFilePath,
+  getSharedFilePath,
+  platformFileExists,
+  sharedFileExists,
+  migrateSharedToPlatformSpecific,
+  discoverPlatformFiles,
+  readPlatformFile,
+} from "../lib/state.js"
 
 interface InboxFile {
   notifications: Notification[]
   _sync: {
     timestamp: string
-    platforms: string[]
+    platform: string
     unreadOnly: boolean
     usersDir?: string
     usersMatched?: number
     newCount: number
     totalCount: number
     dropped?: number
-    /** Per-platform cursors for incremental sync. */
-    cursors?: Record<string, string>
+    /** Per-platform cursor for incremental sync. */
+    cursor?: string
   }
 }
 
@@ -120,11 +134,11 @@ export async function sync(opts: {
   /** Clear both cursors and the local inbox for a fully fresh start. */
   clear?: boolean
 }): Promise<void> {
-  const outputPath = resolve(process.cwd(), opts.output ?? "inbox.yaml")
-
-  // Load config for allowedPlatforms
+  // Load config for allowedPlatforms and platform isolation
   const config = loadConfig()
   const allowedPlatforms = config.sync?.allowedPlatforms
+  const platformIsolation = config.state?.platformIsolation ?? true
+  const stateDir = config.state?.stateDir
 
   // Determine target platforms
   let targetPlatforms: string[]
@@ -151,30 +165,54 @@ export async function sync(opts: {
     }
   }
 
-  // --clear: wipe everything and start from scratch
-  let existing: Notification[] = []
-  const existingIds = new Set<string>()
-  let cursors: Record<string, string> = {}
-
-  if (!opts.clear && existsSync(outputPath)) {
-    try {
-      const raw = parse(readFileSync(outputPath, "utf-8")) as InboxFile
-      // Load cursors only if not resetting
-      if (!opts.reset && raw?._sync?.cursors) cursors = raw._sync.cursors
-      // Load existing items only if not clearing
-      existing = raw?.notifications ?? []
-      for (const n of existing) existingIds.add(n.id)
-    } catch {
-      // Corrupt file, start fresh
+  // Check for legacy shared inbox and migrate if platform isolation is enabled
+  if (platformIsolation && sharedFileExists("inbox", stateDir)) {
+    // Check if any platform-specific files exist
+    const existingPlatformFiles = discoverPlatformFiles("inbox", stateDir)
+    if (existingPlatformFiles.length === 0) {
+      // Migrate shared inbox to platform-specific files
+      console.log("Migrating shared inbox.yaml to platform-specific files...")
+      const migrated = migrateSharedToPlatformSpecific("inbox", targetPlatforms, stateDir)
+      if (migrated.length > 0) {
+        console.log(`Migrated notifications to: ${migrated.map(p => `inbox-${p}.yaml`).join(", ")}`)
+      }
     }
   }
 
-  const allNotifs = [...existing]
-  let newCount = 0
+  // Sync each platform to its own inbox file
+  let totalNewCount = 0
+  let totalPendingCount = 0
 
-  for (const name of targetPlatforms) {
+  for (const platformName of targetPlatforms) {
+    const inboxPath = platformIsolation
+      ? getPlatformFilePath("inbox", platformName, stateDir)
+      : opts.output
+        ? resolve(process.cwd(), opts.output)
+        : getSharedFilePath("inbox", stateDir)
+
+    // Load existing state for this platform
+    let existing: Notification[] = []
+    const existingIds = new Set<string>()
+    let cursor: string | undefined
+
+    if (!opts.clear && existsSync(inboxPath)) {
+      try {
+        const raw = parse(readFileSync(inboxPath, "utf-8")) as InboxFile
+        // Load cursor only if not resetting
+        if (!opts.reset && raw?._sync?.cursor) cursor = raw._sync.cursor
+        // Load existing items only if not clearing
+        existing = raw?.notifications ?? []
+        for (const n of existing) existingIds.add(n.id)
+      } catch {
+        // Corrupt file, start fresh
+      }
+    }
+
+    const allNotifs = [...existing]
+    let newCount = 0
+
     try {
-      const platform = await getPlatformAsync(name)
+      const platform = await getPlatformAsync(platformName)
       // Fetch without passing a cursor — we filter by timestamp instead.
       // Disable unreadOnly on --clear so we get the full recent history as baseline.
       const result = await platform.notifications({
@@ -182,7 +220,7 @@ export async function sync(opts: {
         unreadOnly: opts.clear ? false : (opts.unreadOnly ?? true),
       })
 
-      const cutoff = cursors[name] ? new Date(cursors[name]).getTime() : 0
+      const cutoff = cursor ? new Date(cursor).getTime() : 0
 
       for (const n of result.notifications) {
         const itemTime = new Date(n.timestamp).getTime()
@@ -198,55 +236,61 @@ export async function sync(opts: {
       // Track the newest timestamp seen as the cursor for next sync.
       // result.notifications are sorted newest-first, so the first item is newest.
       if (result.notifications.length > 0) {
-        cursors[name] = result.notifications[0].timestamp
+        cursor = result.notifications[0].timestamp
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      console.error(`[${name}] sync failed: ${msg}`)
-      // Continue on failure
+      console.error(`[${platformName}] sync failed: ${msg}`)
+      // Continue on failure - write what we have
     }
-  }
 
-  // Cap inbox size to prevent unbounded growth
-  const maxItems = opts.maxItems ?? 200
-  const capped = allNotifs.slice(-maxItems)
-  const dropped = allNotifs.length - capped.length
+    // Cap inbox size to prevent unbounded growth
+    const maxItems = opts.maxItems ?? 200
+    const capped = allNotifs.slice(-maxItems)
+    const dropped = allNotifs.length - capped.length
+    totalPendingCount += capped.length
+    totalNewCount += newCount
 
-  // Enrich with user context if --users-dir provided
-  let usersMatched = 0
-  if (opts.usersDir) {
-    const userIndex = buildUserIndex(opts.usersDir)
-    for (const notif of capped as Array<Notification & { userContext?: string }>) {
-      if (!notif.author) continue
-      const filePath = lookupUser(notif.author, notif.authorId, notif.platform, userIndex)
-      if (filePath) {
-        try {
-          notif.userContext = readFileSync(filePath, "utf-8")
-          usersMatched++
-        } catch {
-          // Skip unreadable files
+    // Enrich with user context if --users-dir provided
+    let usersMatched = 0
+    if (opts.usersDir) {
+      const userIndex = buildUserIndex(opts.usersDir)
+      for (const notif of capped as Array<Notification & { userContext?: string }>) {
+        if (!notif.author) continue
+        const filePath = lookupUser(notif.author, notif.authorId, notif.platform, userIndex)
+        if (filePath) {
+          try {
+            notif.userContext = readFileSync(filePath, "utf-8")
+            usersMatched++
+          } catch {
+            // Skip unreadable files
+          }
         }
       }
     }
+
+    const inbox: InboxFile = {
+      notifications: capped,
+      _sync: {
+        timestamp: new Date().toISOString(),
+        platform: platformName,
+        unreadOnly: opts.unreadOnly ?? true,
+        newCount,
+        totalCount: capped.length,
+        cursor,
+        ...(dropped > 0 ? { dropped } : {}),
+        ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched } : {}),
+      },
+    }
+
+    writeFileAtomic(inboxPath, stringify(inbox, { lineWidth: 120 }))
+    
+    let msg = `[${platformName}] Synced ${newCount} new notifications (${capped.length} pending total) → ${inboxPath}`
+    if (dropped > 0) msg += ` (${dropped} oldest dropped, cap: ${maxItems})`
+    if (opts.usersDir) msg += ` (${usersMatched} users matched)`
+    console.log(msg)
   }
 
-  const inbox: InboxFile = {
-    notifications: capped,
-    _sync: {
-      timestamp: new Date().toISOString(),
-      platforms: targetPlatforms,
-      unreadOnly: opts.unreadOnly ?? true,
-      newCount,
-      totalCount: capped.length,
-      cursors,
-      ...(dropped > 0 ? { dropped } : {}),
-      ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched } : {}),
-    },
-  }
-
-  writeFileAtomic(outputPath, stringify(inbox, { lineWidth: 120 }))
-  let msg = `Synced ${newCount} new notifications (${capped.length} pending total) → ${outputPath}`
-  if (dropped > 0) msg += ` (${dropped} oldest dropped, cap: ${maxItems})`
-  if (opts.usersDir) msg += ` (${usersMatched} users matched)`
-  console.log(msg)
+  // Summary
+  console.log(`\nTotal: ${totalNewCount} new notifications across ${targetPlatforms.length} platform(s)`)
 }

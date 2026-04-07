@@ -38,15 +38,16 @@ program
     })
   })
 
-// dispatch: outbox.yaml → post to platforms
+// dispatch: outbox-{platform}.yaml → post to platforms
 program
   .command("dispatch")
-  .description("Dispatch posts from outbox YAML")
-  .argument("[file]", "Outbox file", "outbox.yaml")
+  .description("Dispatch posts from platform-specific outbox YAML files")
+  .argument("[file]", "Outbox file (optional, defaults to platform-specific discovery)")
+  .option("-p, --platform <platform>", "Platform to dispatch from (e.g., bsky, x)")
   .option("--dry-run", "Validate only, don't post")
   .action(async (file, opts) => {
     const { dispatch } = await import("./commands/dispatch.js")
-    await dispatch({ file, dryRun: opts.dryRun })
+    await dispatch({ file, dryRun: opts.dryRun, platform: opts.platform })
   })
 
 // check: Anything actionable? Exit code only.
@@ -54,9 +55,10 @@ program
   .command("check")
   .description("Check if inbox has actionable items (exit 0 = yes, 1 = no)")
   .option("-t, --threshold <number>", "Minimum items to trigger", "1")
+  .option("-p, --platform <platform>", "Check a specific platform's inbox")
   .action(async (opts) => {
     const { check } = await import("./commands/check.js")
-    await check({ threshold: parseInt(opts.threshold) })
+    await check({ threshold: parseInt(opts.threshold), platform: opts.platform })
   })
 
 // search: Search posts

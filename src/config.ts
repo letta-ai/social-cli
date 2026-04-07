@@ -26,10 +26,18 @@ export interface DispatchConfig {
   allowedPlatforms?: string[]
 }
 
+export interface StateConfig {
+  /** Enable platform-specific state files (default: true) */
+  platformIsolation?: boolean
+  /** Directory for state files (default: cwd) */
+  stateDir?: string
+}
+
 export interface Config {
   accounts: Record<string, AccountConfig>
   sync?: SyncConfig
   dispatch?: DispatchConfig
+  state?: StateConfig
 }
 
 const CONFIG_PATHS = [

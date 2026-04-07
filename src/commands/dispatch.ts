@@ -1,16 +1,36 @@
 /**
- * dispatch: Read outbox YAML, post to platforms, write results.
+ * dispatch: Read outbox-{platform}.yaml, post to platforms, write results.
+ * 
+ * With platform isolation enabled (default), dispatch reads from platform-specific
+ * outbox files and writes to platform-specific sent_ledger files.
+ * 
+ * Usage:
+ *   dispatch                  - Dispatch from all platform outboxes
+ *   dispatch --platform bsky  - Dispatch only from bsky outbox
+ *   dispatch outbox.yaml     - Dispatch from a specific file (legacy mode)
+ * 
  * Continue on failure — report per-action results.
  */
 
-import { readFileSync, existsSync, mkdirSync, renameSync } from "node:fs"
-import { resolve, join } from "node:path"
+import { readFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs"
+import { resolve, join, basename } from "node:path"
 import { createHash } from "node:crypto"
 import { parse, stringify } from "yaml"
 import { getPlatformAsync } from "../platforms/index.js"
 import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
 import { writeFileAtomic } from "../util/fs.js"
+import {
+  getPlatformFilePath,
+  getSharedFilePath,
+  platformFileExists,
+  sharedFileExists,
+  migrateSharedToPlatformSpecific,
+  discoverPlatformFiles,
+  readPlatformFile,
+  writePlatformFile,
+  readSharedFile,
+} from "../lib/state.js"
 
 /**
  * Provenance information for a dispatch run.
@@ -33,6 +53,8 @@ export interface ProvenanceInfo {
   dispatchTimestamp: string
   /** Whether this was a dry run (validation only) */
   dryRun: boolean
+  /** Platform being dispatched (for platform-specific dispatch) */
+  platform?: string
 }
 
 interface DispatchResult {
@@ -106,6 +128,7 @@ function buildProvenanceInfo(opts: {
   platformScope?: string[]
   dryRun: boolean
   schedulerJobId?: string
+  platform?: string
 }): ProvenanceInfo {
   const agentId = process.env.SOCIAL_CLI_AGENT_ID
   return {
@@ -117,84 +140,113 @@ function buildProvenanceInfo(opts: {
     inboxPath: opts.inboxPath,
     dispatchTimestamp: new Date().toISOString(),
     dryRun: opts.dryRun,
+    platform: opts.platform,
   }
 }
 
-export async function dispatch(opts: {
-  file?: string
-  dryRun?: boolean
-  /** Optional scheduler job ID or automation source for provenance tracking */
-  schedulerJobId?: string
-}): Promise<void> {
-  const filePath = resolve(process.cwd(), opts.file ?? "outbox.yaml")
-  const dispatchTimestamp = new Date().toISOString()
+/**
+ * Dispatch for a single platform.
+ */
+async function dispatchPlatform(
+  platform: string,
+  opts: {
+    dryRun?: boolean
+    schedulerJobId?: string
+    explicitFile?: string
+  }
+): Promise<{ ok: number; failed: number; results: DispatchResult[] }> {
+  const config = loadConfig()
+  const platformIsolation = config.state?.platformIsolation ?? true
+  const stateDir = config.state?.stateDir
+  const allowedPlatforms = config.dispatch?.allowedPlatforms
 
-  if (!existsSync(filePath)) {
-    console.error(`File not found: ${filePath}`)
-    process.exit(1)
+  // Validate platform is in allowed set
+  if (allowedPlatforms && allowedPlatforms.length > 0) {
+    if (!allowedPlatforms.includes(platform)) {
+      console.error(`Error: Platform "${platform}" not in dispatch allowed set.`)
+      console.error(`Allowed platforms: ${allowedPlatforms.join(", ")}`)
+      process.exit(1)
+    }
   }
 
+  // Determine outbox path
+  const outboxPath = opts.explicitFile
+    ? resolve(process.cwd(), opts.explicitFile)
+    : platformIsolation
+      ? getPlatformFilePath("outbox", platform, stateDir)
+      : getSharedFilePath("outbox", stateDir)
+
+  if (!existsSync(outboxPath)) {
+    console.log(`[${platform}] No outbox file found at ${outboxPath}, skipping.`)
+    return { ok: 0, failed: 0, results: [] }
+  }
+
+  // Load outbox
   let outbox: OutboxFile
   try {
-    outbox = parse(readFileSync(filePath, "utf-8")) as OutboxFile
+    outbox = parse(readFileSync(outboxPath, "utf-8")) as OutboxFile
   } catch (err) {
-    console.error(`Failed to parse ${filePath}: ${err instanceof Error ? err.message : err}`)
-    process.exit(1)
+    console.error(`[${platform}] Failed to parse ${outboxPath}: ${err instanceof Error ? err.message : err}`)
+    return { ok: 0, failed: 1, results: [] }
   }
 
   // Validate
   const validation = validateOutbox(outbox)
   if (validation.warnings.length > 0) {
-    for (const w of validation.warnings) console.error(`Warning: ${w}`)
+    for (const w of validation.warnings) console.error(`[${platform}] Warning: ${w}`)
   }
   if (!validation.valid) {
-    for (const e of validation.errors) console.error(`Error: ${e}`)
-    console.error(`Validation failed: ${validation.errors.length} error(s)`)
-    process.exit(1)
+    for (const e of validation.errors) console.error(`[${platform}] Error: ${e}`)
+    console.error(`[${platform}] Validation failed: ${validation.errors.length} error(s)`)
+    return { ok: 0, failed: 1, results: [] }
   }
 
-  // Load config for dispatch allowedPlatforms
-  const config = loadConfig()
-  const allowedPlatforms = config.dispatch?.allowedPlatforms
-  const inboxPath = resolve(process.cwd(), "inbox.yaml")
+  // Determine inbox path
+  const inboxPath = platformIsolation
+    ? getPlatformFilePath("inbox", platform, stateDir)
+    : getSharedFilePath("inbox", stateDir)
 
-  // Build provenance info for this dispatch run
+  // Build provenance info
   const provenance = buildProvenanceInfo({
-    filePath,
+    filePath: outboxPath,
     inboxPath: existsSync(inboxPath) ? inboxPath : undefined,
     platformScope: allowedPlatforms,
     dryRun: opts.dryRun ?? false,
     schedulerJobId: opts.schedulerJobId,
+    platform,
   })
 
   // Validate platform scope for each action
   if (allowedPlatforms && allowedPlatforms.length > 0) {
     for (const action of outbox.dispatch) {
-      let platform: string | undefined
-      if (action.reply) platform = action.reply.platform
-      else if (action.thread) platform = action.thread.platform
-      else if (action.annotate) platform = action.annotate.platform
-      else if (action.follow) platform = action.follow.platform
-      else if (action.like) platform = action.like.platform
+      let actionPlatform: string | undefined
+      if (action.reply) actionPlatform = action.reply.platform
+      else if (action.thread) actionPlatform = action.thread.platform
+      else if (action.annotate) actionPlatform = action.annotate.platform
+      else if (action.follow) actionPlatform = action.follow.platform
+      else if (action.like) actionPlatform = action.like.platform
       else if (action.post?.platforms) {
         const platforms = action.post.platforms
-        platform = Array.isArray(platforms) ? platforms[0] : Object.keys(platforms)[0]
+        actionPlatform = Array.isArray(platforms) ? platforms[0] : Object.keys(platforms)[0]
       }
 
-      if (platform && !allowedPlatforms.includes(platform)) {
-        console.error(`Error: Platform "${platform}" not in dispatch allowed set.`)
+      if (actionPlatform && !allowedPlatforms.includes(actionPlatform)) {
+        console.error(`[${platform}] Error: Platform "${actionPlatform}" not in dispatch allowed set.`)
         console.error(`Allowed platforms: ${allowedPlatforms.join(", ")}`)
         process.exit(1)
       }
     }
   }
 
-
   // Load sent ledger for replay protection
-  const sentLedgerPath = resolve(process.cwd(), "sent_ledger.yaml")
+  const sentLedgerPath = platformIsolation
+    ? getPlatformFilePath("sent_ledger", platform, stateDir)
+    : getSharedFilePath("sent_ledger", stateDir)
+  
   let sentLedger: SentLedgerEntry[] = []
   let sentKeys = new Set<string>()
   let sentReplyTargets = new Set<string>()
+  
   if (existsSync(sentLedgerPath)) {
     try {
       const sentData = parse(readFileSync(sentLedgerPath, "utf-8")) as { entries?: SentLedgerEntry[] }
@@ -248,18 +300,18 @@ export async function dispatch(opts: {
           : action.post.platforms && typeof action.post.platforms === "object"
             ? Object.keys(action.post.platforms)
             : ["bsky"]
-        for (const platform of platforms) {
-          const key = postKey(platform, action.post.text, action.post.idempotencyKey)
+        for (const plat of platforms) {
+          const key = postKey(plat, action.post.text, action.post.idempotencyKey)
           if (sentKeys.has(key)) {
-            preflightErrors.push(`Replay detected for post on ${platform}`)
+            preflightErrors.push(`Replay detected for post on ${plat}`)
           }
         }
       }
       if (action.post.platforms && typeof action.post.platforms === "object" && !Array.isArray(action.post.platforms)) {
-        for (const [platform, text] of Object.entries(action.post.platforms)) {
-          const key = postKey(platform, text, action.post.idempotencyKey)
+        for (const [plat, text] of Object.entries(action.post.platforms)) {
+          const key = postKey(plat, text, action.post.idempotencyKey)
           if (sentKeys.has(key)) {
-            preflightErrors.push(`Replay detected for post on ${platform}`)
+            preflightErrors.push(`Replay detected for post on ${plat}`)
           }
         }
       }
@@ -281,18 +333,17 @@ export async function dispatch(opts: {
   }
 
   if (preflightErrors.length > 0) {
-    for (const e of preflightErrors) console.error(`Preflight error: ${e}`)
-    console.error(`Preflight validation failed: ${preflightErrors.length} error(s)`)
+    for (const e of preflightErrors) console.error(`[${platform}] Preflight error: ${e}`)
+    console.error(`[${platform}] Preflight validation failed: ${preflightErrors.length} error(s)`)
     process.exit(1)
   }
 
   if (opts.dryRun) {
-    console.log("Dry run: validation passed.")
-    process.exit(0)
+    console.log(`[${platform}] Dry run: validation passed.`)
+    return { ok: 0, failed: 0, results: [] }
   }
 
   // Load inbox for validation and later pruning
-  // Note: inboxPath is already defined above for provenance
   let inboxNotifications: Array<{ id: string; postId?: string }> = []
   if (existsSync(inboxPath)) {
     try {
@@ -304,7 +355,10 @@ export async function dispatch(opts: {
   }
 
   // Load persistent processed state
-  const processedPath = resolve(process.cwd(), "processed.yaml")
+  const processedPath = platformIsolation
+    ? getPlatformFilePath("processed", platform, stateDir)
+    : resolve(process.cwd(), "processed.yaml")
+  
   let persistentProcessed: Set<string> = new Set()
   if (existsSync(processedPath)) {
     try {
@@ -331,7 +385,7 @@ export async function dispatch(opts: {
     )
     const filtered = before - inboxNotifications.length
     if (filtered > 0) {
-      console.log(`Filtered ${filtered} previously-processed notification(s) from inbox`)
+      console.log(`[${platform}] Filtered ${filtered} previously-processed notification(s) from inbox`)
     }
   }
 
@@ -351,15 +405,15 @@ export async function dispatch(opts: {
 
     if (action.ignore) {
       processedNotifIds.push(action.ignore.id)
-      console.log(`Ignoring ${action.ignore.id} (${action.ignore.reason ?? "unspecified"})`)
+      console.log(`[${platform}] Ignoring ${action.ignore.id} (${action.ignore.reason ?? "unspecified"})`)
       continue
     }
 
     if (action.reply) {
       const r = action.reply
       try {
-        const platform = await getPlatformAsync(r.platform)
-        const res = await platform.reply(r.id, r.text)
+        const plat = await getPlatformAsync(r.platform)
+        const res = await plat.reply(r.id, r.text)
         results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
         successfulReplyCount += 1
 
@@ -391,11 +445,11 @@ export async function dispatch(opts: {
           processedNotifIds.push(n.id)
           if (n.postId) processedNotifIds.push(n.postId)
         }
-        console.log(`Replied on ${r.platform}: ${res.id}`)
+        console.log(`[${platform}] Replied on ${r.platform}: ${res.id}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "reply", platform: r.platform, status: "error", targetId: r.id, error: msg })
-        console.error(`Reply failed on ${r.platform}: ${msg}`)
+        console.error(`[${platform}] Reply failed on ${r.platform}: ${msg}`)
       }
     }
 
@@ -421,8 +475,8 @@ export async function dispatch(opts: {
 
       for (const t of targets) {
         try {
-          const platform = await getPlatformAsync(t.platform)
-          const res = await platform.post(t.text)
+          const plat = await getPlatformAsync(t.platform)
+          const res = await plat.post(t.text)
           results.push({ action: "post", platform: t.platform, status: "ok", id: res.id })
           sentEntriesToAppend.push({
             key: postKey(t.platform, t.text, p.idempotencyKey),
@@ -441,11 +495,11 @@ export async function dispatch(opts: {
             dispatchTimestamp: provenance.dispatchTimestamp,
             dryRun: provenance.dryRun,
           })
-          console.log(`Posted on ${t.platform}: ${res.id}`)
+          console.log(`[${platform}] Posted on ${t.platform}: ${res.id}`)
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           results.push({ action: "post", platform: t.platform, status: "error", error: msg })
-          console.error(`Post failed on ${t.platform}: ${msg}`)
+          console.error(`[${platform}] Post failed on ${t.platform}: ${msg}`)
         }
       }
     }
@@ -453,8 +507,8 @@ export async function dispatch(opts: {
     if (action.thread) {
       const t = action.thread
       try {
-        const platform = await getPlatformAsync(t.platform)
-        const res = await platform.thread(t.posts)
+        const plat = await getPlatformAsync(t.platform)
+        const res = await plat.thread(t.posts)
         for (const r of res) {
           results.push({ action: "thread", platform: t.platform, status: "ok", id: r.id })
         }
@@ -475,7 +529,7 @@ export async function dispatch(opts: {
           dispatchTimestamp: provenance.dispatchTimestamp,
           dryRun: provenance.dryRun,
         })
-        console.log(`Thread posted on ${t.platform}: ${res.length} posts`)
+        console.log(`[${platform}] Thread posted on ${t.platform}: ${res.length} posts`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         // Find how many posts succeeded before failure
@@ -496,59 +550,59 @@ export async function dispatch(opts: {
             remainingPosts: t.posts.slice(okCount),
           } : undefined,
         } as any)
-        console.error(`Thread failed on ${t.platform} at post ${okCount + 1}/${t.posts.length}: ${msg}`)
+        console.error(`[${platform}] Thread failed on ${t.platform} at post ${okCount + 1}/${t.posts.length}: ${msg}`)
       }
     }
 
     if (action.follow) {
       const f = action.follow
       try {
-        const platform = await getPlatformAsync(f.platform)
-        if (!platform.follow) {
+        const plat = await getPlatformAsync(f.platform)
+        if (!plat.follow) {
           throw new Error(`Platform ${f.platform} does not support follow`)
         }
         const cleanHandle = f.handle.replace(/^@/, "")
-        await platform.follow(cleanHandle)
+        await plat.follow(cleanHandle)
         results.push({ action: "follow", platform: f.platform, status: "ok", id: cleanHandle })
-        console.log(`Followed on ${f.platform}: ${cleanHandle}`)
+        console.log(`[${platform}] Followed on ${f.platform}: ${cleanHandle}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "follow", platform: f.platform, status: "error", error: msg })
-        console.error(`Follow failed on ${f.platform}: ${msg}`)
+        console.error(`[${platform}] Follow failed on ${f.platform}: ${msg}`)
       }
     }
 
     if (action.like) {
       const l = action.like
       try {
-        const platform = await getPlatformAsync(l.platform)
-        if (!platform.like) {
+        const plat = await getPlatformAsync(l.platform)
+        if (!plat.like) {
           throw new Error(`Platform ${l.platform} does not support like`)
         }
-        await platform.like(l.id)
+        await plat.like(l.id)
         results.push({ action: "like", platform: l.platform, status: "ok", targetId: l.id })
-        console.log(`Liked on ${l.platform}: ${l.id}`)
+        console.log(`[${platform}] Liked on ${l.platform}: ${l.id}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "like", platform: l.platform, status: "error", targetId: l.id, error: msg })
-        console.error(`Like failed on ${l.platform}: ${msg}`)
+        console.error(`[${platform}] Like failed on ${l.platform}: ${msg}`)
       }
     }
 
     if (action.annotate) {
       const a = action.annotate
       try {
-        const platform = await getPlatformAsync(a.platform)
-        if (!platform.annotate) {
+        const plat = await getPlatformAsync(a.platform)
+        if (!plat.annotate) {
           throw new Error(`Platform ${a.platform} does not support annotations`)
         }
-        const res = await platform.annotate(a.id, a.text, { motivation: a.motivation })
+        const res = await plat.annotate(a.id, a.text, { motivation: a.motivation })
         results.push({ action: "annotate", platform: a.platform, status: "ok", id: res.id })
-        console.log(`Annotated on ${a.platform}: ${res.id}`)
+        console.log(`[${platform}] Annotated on ${a.platform}: ${res.id}`)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "annotate", platform: a.platform, status: "error", error: msg })
-        console.error(`Annotate failed on ${a.platform}: ${msg}`)
+        console.error(`[${platform}] Annotate failed on ${a.platform}: ${msg}`)
       }
     }
   }
@@ -557,8 +611,8 @@ export async function dispatch(opts: {
   const archiveDir = resolve(process.cwd(), "outbox_archive")
   mkdirSync(archiveDir, { recursive: true })
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const archivedOutbox = join(archiveDir, `${timestamp}_outbox.yaml`)
-  renameSync(filePath, archivedOutbox)
+  const archivedOutbox = join(archiveDir, `${timestamp}_outbox-${platform}.yaml`)
+  renameSync(outboxPath, archivedOutbox)
 
   if (sentEntriesToAppend.length > 0) {
     sentLedger.push(...sentEntriesToAppend)
@@ -610,7 +664,7 @@ export async function dispatch(opts: {
   }
 
   // Write results
-  const resultPath = resolve(process.cwd(), "dispatch_result.yaml")
+  const resultPath = resolve(process.cwd(), `dispatch_result-${platform}.yaml`)
   writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved, provenance }, { lineWidth: 120 }))
 
   // Persist processed set for future cycles
@@ -622,7 +676,109 @@ export async function dispatch(opts: {
 
   const ok = results.filter((r) => r.status === "ok").length
   const failed = results.filter((r) => r.status === "error").length
-  console.log(`\nDispatch complete: ${ok} ok, ${failed} failed`)
+  console.log(`[${platform}] Dispatch complete: ${ok} ok, ${failed} failed`)
 
-  if (failed > 0) process.exit(2) // Partial failure
+  return { ok, failed, results }
+}
+
+export async function dispatch(opts: {
+  file?: string
+  dryRun?: boolean
+  /** Optional scheduler job ID or automation source for provenance tracking */
+  schedulerJobId?: string
+  /** Platform to dispatch (for platform-specific dispatch) */
+  platform?: string
+}): Promise<void> {
+  const config = loadConfig()
+  const platformIsolation = config.state?.platformIsolation ?? true
+  const stateDir = config.state?.stateDir
+  const allowedPlatforms = config.dispatch?.allowedPlatforms ?? []
+
+  // If explicit file is provided, use legacy single-file dispatch
+  if (opts.file) {
+    // Legacy mode: dispatch from a specific file
+    const filePath = resolve(process.cwd(), opts.file)
+    
+    // Determine platform from filename if it matches pattern
+    let platform: string | undefined
+    const match = basename(filePath).match(/^outbox-(.+)\.yaml$/)
+    if (match) {
+      platform = match[1]
+    } else {
+      // Use the first allowed platform or default to bsky
+      platform = allowedPlatforms[0] ?? "bsky"
+    }
+
+    const result = await dispatchPlatform(platform, {
+      dryRun: opts.dryRun,
+      schedulerJobId: opts.schedulerJobId,
+      explicitFile: opts.file,
+    })
+
+    if (result.failed > 0) process.exit(2)
+    return
+  }
+
+  // Platform-specific dispatch
+  if (opts.platform) {
+    // Dispatch from a specific platform's outbox
+    const result = await dispatchPlatform(opts.platform, {
+      dryRun: opts.dryRun,
+      schedulerJobId: opts.schedulerJobId,
+    })
+
+    if (result.failed > 0) process.exit(2)
+    return
+  }
+
+  // Discover all platform outboxes
+  let platforms: string[]
+  if (platformIsolation) {
+    platforms = discoverPlatformFiles("outbox", stateDir)
+    if (platforms.length === 0) {
+      // Check for legacy shared outbox
+      if (sharedFileExists("outbox", stateDir)) {
+        console.log("Using legacy shared outbox.yaml (consider migrating to platform-specific files)")
+        const platform = allowedPlatforms[0] ?? "bsky"
+        const result = await dispatchPlatform(platform, {
+          dryRun: opts.dryRun,
+          schedulerJobId: opts.schedulerJobId,
+        })
+        if (result.failed > 0) process.exit(2)
+        return
+      }
+      console.log("No outbox files found.")
+      return
+    }
+  } else {
+    // Legacy mode: use shared outbox
+    if (!sharedFileExists("outbox", stateDir)) {
+      console.log("No outbox.yaml found.")
+      return
+    }
+    const platform = allowedPlatforms[0] ?? "bsky"
+    const result = await dispatchPlatform(platform, {
+      dryRun: opts.dryRun,
+      schedulerJobId: opts.schedulerJobId,
+    })
+    if (result.failed > 0) process.exit(2)
+    return
+  }
+
+  // Dispatch from all platform outboxes
+  let totalOk = 0
+  let totalFailed = 0
+
+  for (const platform of platforms) {
+    const result = await dispatchPlatform(platform, {
+      dryRun: opts.dryRun,
+      schedulerJobId: opts.schedulerJobId,
+    })
+    totalOk += result.ok
+    totalFailed += result.failed
+  }
+
+  console.log(`\nTotal dispatch: ${totalOk} ok, ${totalFailed} failed across ${platforms.length} platform(s)`)
+
+  if (totalFailed > 0) process.exit(2)
 }
