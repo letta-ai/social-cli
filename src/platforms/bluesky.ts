@@ -7,6 +7,8 @@ import { Agent, CredentialSession, RichText, AppBskyFeedPost, ComAtprotoRepoStro
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { extname } from "node:path"
+import { request } from "node:https"
+import { request as httpRequest } from "node:http"
 import type {
   SocialPlatform,
   PostOpts,
@@ -145,6 +147,54 @@ function extractEmbed(embed: any): EmbedInfo | undefined {
   }
 }
 
+/**
+ * Download media from a URL and return as Buffer.
+ */
+async function downloadMedia(url: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith("https") ? request : httpRequest
+    protocol(url, (res) => {
+      const chunks: Buffer[] = []
+      res.on("data", (chunk) => chunks.push(chunk))
+      res.on("end", () => resolve(Buffer.concat(chunks)))
+      res.on("error", reject)
+    }).on("error", reject).end()
+  })
+}
+
+/**
+ * Upload media files to Bluesky and return embed structure.
+ */
+async function uploadMedia(agent: Agent, mediaPaths: string[]): Promise<any> {
+  const images: Array<{ alt: string; image: any }> = []
+
+  for (const path of mediaPaths) {
+    const ext = extname(path).toLowerCase()
+    const mimeTypes: Record<string, string> = {
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".gif": "image/gif",
+      ".webp": "image/webp",
+    }
+    const encoding = mimeTypes[ext] ?? "image/png"
+
+    const imageBytes = readFileSync(path)
+    const blob = await agent.uploadBlob(imageBytes, { encoding })
+
+    images.push({
+      alt: "",
+      image: blob.data.blob,
+    })
+  }
+
+  if (images.length === 0) return undefined
+  return {
+    $type: "app.bsky.embed.images",
+    images,
+  }
+}
+
 export const bluesky: SocialPlatform = {
   name: "bsky",
 
@@ -160,6 +210,23 @@ export const bluesky: SocialPlatform = {
           embed = {
             $type: "app.bsky.embed.record",
             record: { cid: quoted.cid, uri: quoted.uri },
+          }
+        }
+      }
+
+      // Handle media uploads
+      if (opts?.media && opts.media.length > 0) {
+        const mediaEmbed = await uploadMedia(agent, opts.media)
+        if (mediaEmbed) {
+          if (embed) {
+            // Combine quote + media
+            embed = {
+              $type: "app.bsky.embed.recordWithMedia",
+              record: embed.record,
+              media: mediaEmbed,
+            }
+          } else {
+            embed = mediaEmbed
           }
         }
       }
@@ -182,10 +249,17 @@ export const bluesky: SocialPlatform = {
       const record = parent.record as AppBskyFeedPost.Record
       const rootRef = record.reply?.root ?? parentRef
 
+      // Handle media uploads
+      let embed: any = undefined
+      if (opts?.media && opts.media.length > 0) {
+        embed = await uploadMedia(agent, opts.media)
+      }
+
       const res = await agent.post({
         text: rt.text,
         facets: rt.facets,
         reply: { parent: parentRef, root: rootRef },
+        embed,
       })
 
       return { platform: "bsky", id: res.uri, uri: res.uri, text }

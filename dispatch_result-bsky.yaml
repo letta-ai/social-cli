@@ -2,11 +2,11 @@ results:
   - action: reply
     platform: bsky
     status: ok
-    id: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivddrhkpc2r
-    targetId: at://did:plc:27ivzcszryxp6mehutodmcxo/app.bsky.feed.post/3mivdb3osoc2e
-    archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T08-11-10-967Z_outbox-bsky.yaml
+    id: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivin2baek2r
+    targetId: at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3miviit2bi22t
+    archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T09-45-50-392Z_outbox-bsky.yaml
     inboxIdsRemoved:
-      - at://did:plc:27ivzcszryxp6mehutodmcxo/app.bsky.feed.post/3mivdb3osoc2e
+      - at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3miviit2bi22t
     provenance: &a1
       agentId: void
       cwd: /home/cameron/void/social-cli
@@ -15,40 +15,10 @@ results:
         - x
       outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
       inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
-      dispatchTimestamp: 2026-04-07T08:11:04.978Z
+      dispatchTimestamp: 2026-04-07T09:45:44.979Z
       dryRun: false
       platform: bsky
-  - action: reply
-    platform: bsky
-    status: ok
-    id: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivddrng7c2r
-    targetId: at://did:plc:27ivzcszryxp6mehutodmcxo/app.bsky.feed.post/3mivd3osjhs2e
-    archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T08-11-10-967Z_outbox-bsky.yaml
-    inboxIdsRemoved:
-      - at://did:plc:27ivzcszryxp6mehutodmcxo/app.bsky.feed.post/3mivd3osjhs2e
-    provenance: *a1
-  - action: reply
-    platform: bsky
-    status: ok
-    id: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivddrri3k2r
-    targetId: at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivd2kodgc2z
-    archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T08-11-10-967Z_outbox-bsky.yaml
-    inboxIdsRemoved:
-      - at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivd2kodgc2z
-    provenance: *a1
-  - action: reply
-    platform: bsky
-    status: ok
-    id: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivddrxeks2r
-    targetId: at://did:plc:xt5xxgattditstu4gxjqyh6i/app.bsky.feed.post/3mivcskgdz22z
-    archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T08-11-10-967Z_outbox-bsky.yaml
-    inboxIdsRemoved:
-      - at://did:plc:xt5xxgattditstu4gxjqyh6i/app.bsky.feed.post/3mivcskgdz22z
-    provenance: *a1
-archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T08-11-10-967Z_outbox-bsky.yaml
+archivedOutbox: /home/cameron/void/social-cli/outbox_archive/2026-04-07T09-45-50-392Z_outbox-bsky.yaml
 inboxIdsRemoved:
-  - at://did:plc:27ivzcszryxp6mehutodmcxo/app.bsky.feed.post/3mivdb3osoc2e
-  - at://did:plc:27ivzcszryxp6mehutodmcxo/app.bsky.feed.post/3mivd3osjhs2e
-  - at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivd2kodgc2z
-  - at://did:plc:xt5xxgattditstu4gxjqyh6i/app.bsky.feed.post/3mivcskgdz22z
+  - at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3miviit2bi22t
 provenance: *a1

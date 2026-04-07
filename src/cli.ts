@@ -101,12 +101,13 @@ program
   .argument("<text>", "Text to post")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("--quote <id>", "Quote/repost a post by ID")
+  .option("-m, --media <paths...>", "Media file paths to attach")
   .action(async (text, opts) => {
     const { validateText } = await import("./util/validate.js")
     validateText(opts.platform, text)
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
-    const result = await platform.post(text, { quoteId: opts.quote })
+    const result = await platform.post(text, { quoteId: opts.quote, media: opts.media })
     console.log(`Posted: ${result.id}`)
   })
 
@@ -117,12 +118,13 @@ program
   .argument("<text>", "Reply text")
   .requiredOption("--id <id>", "Post ID to reply to")
   .option("-p, --platform <platform>", "Platform", "bsky")
+  .option("-m, --media <paths...>", "Media file paths to attach")
   .action(async (text, opts) => {
     const { validateText } = await import("./util/validate.js")
     validateText(opts.platform, text)
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
-    const result = await platform.reply(opts.id, text)
+    const result = await platform.reply(opts.id, text, { media: opts.media })
     console.log(`Replied: ${result.id}`)
   })
 
