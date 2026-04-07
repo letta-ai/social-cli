@@ -475,3 +475,141 @@ entries:
     inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
     dispatchTimestamp: 2026-04-07T09:45:44.979Z
     dryRun: false
+  - key: reply:bsky:at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivjm6vut22t:c684a1c70b6ae943518bcb5b7d87e9e09bfe5f559b89ccfe90187f6e54b190cf
+    action: reply
+    platform: bsky
+    targetId: at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivjm6vut22t
+    textHash: c684a1c70b6ae943518bcb5b7d87e9e09bfe5f559b89ccfe90187f6e54b190cf
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivjqoao622r
+    timestamp: 2026-04-07T10:05:45.740Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T10:05:41.413Z
+    dryRun: false
+  - key: reply:bsky:at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivkcxdss22t:39187041988f66c1609b587d69f68549b19d445fcb7d679c9f4231afc7b5448c
+    action: reply
+    platform: bsky
+    targetId: at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivkcxdss22t
+    textHash: 39187041988f66c1609b587d69f68549b19d445fcb7d679c9f4231afc7b5448c
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivktzfwo22r
+    timestamp: 2026-04-07T10:25:31.859Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T10:25:30.221Z
+    dryRun: false
+  - key: reply:bsky:at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivlqvdhds2t:5fbb38e0393ff6434bbaf435e9864ea6fd8004a75675f6e336badfd953c79538
+    action: reply
+    platform: bsky
+    targetId: at://did:plc:boia3kqcyo3qnjw5fmqknib4/app.bsky.feed.post/3mivlqvdhds2t
+    textHash: 5fbb38e0393ff6434bbaf435e9864ea6fd8004a75675f6e336badfd953c79538
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivly57uhs2r
+    timestamp: 2026-04-07T10:45:43.798Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T10:45:39.226Z
+    dryRun: false
+  - key: post:bsky:eaac2edeba3b82007653c0acaa7748a94fafdaca2e34023fbe39a35b156bb4ec
+    action: post
+    platform: bsky
+    textHash: eaac2edeba3b82007653c0acaa7748a94fafdaca2e34023fbe39a35b156bb4ec
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivmtjfqf22r
+    timestamp: 2026-04-07T11:01:02.567Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T11:00:57.466Z
+    dryRun: false
+  - key: post:bsky:40e3662597edab799c0c8125db4c9a2ec8d5d63c7d230c7d3b097a9a6194d1e7
+    action: post
+    platform: bsky
+    textHash: 40e3662597edab799c0c8125db4c9a2ec8d5d63c7d230c7d3b097a9a6194d1e7
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivpdyz2e22r
+    timestamp: 2026-04-07T11:46:03.272Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T11:46:00.976Z
+    dryRun: false
+  - key: post:bsky:f24d974ab402684baaa049de76421505445770ad05fe2cac666cf6d14e27c453
+    action: post
+    platform: bsky
+    textHash: f24d974ab402684baaa049de76421505445770ad05fe2cac666cf6d14e27c453
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivr35j7uk2r
+    timestamp: 2026-04-07T12:16:53.472Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T12:16:51.641Z
+    dryRun: false
+  - key: post:bsky:cf15d8abd74f52781859833aeb013b7b0c3753cf78f7155d08198089a4030452
+    action: post
+    platform: bsky
+    textHash: cf15d8abd74f52781859833aeb013b7b0c3753cf78f7155d08198089a4030452
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivrvcm6ic2r
+    timestamp: 2026-04-07T12:31:31.230Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T12:31:26.669Z
+    dryRun: false
+  - key: post:bsky:f3f30d039579535c7dbccbbbcb3f676ad705842cc51db656b2789614fa062866
+    action: post
+    platform: bsky
+    textHash: f3f30d039579535c7dbccbbbcb3f676ad705842cc51db656b2789614fa062866
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivtlnqboc2r
+    timestamp: 2026-04-07T13:01:54.875Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T13:01:50.012Z
+    dryRun: false
+  - key: post:bsky:2202457f7ebf7ab45359cfcacc6365502b2f3d7edae65665c3f7e96e43f3142a
+    action: post
+    platform: bsky
+    textHash: 2202457f7ebf7ab45359cfcacc6365502b2f3d7edae65665c3f7e96e43f3142a
+    createdId: at://did:plc:mxzuau6m53jtdsbqe6f4laov/app.bsky.feed.post/3mivuf5mdok2r
+    timestamp: 2026-04-07T13:16:10.369Z
+    agentId: void
+    cwd: /home/cameron/void/social-cli
+    platformScope:
+      - bsky
+      - x
+    outboxPath: /home/cameron/void/social-cli/outbox-bsky.yaml
+    inboxPath: /home/cameron/void/social-cli/inbox-bsky.yaml
+    dispatchTimestamp: 2026-04-07T13:16:09.237Z
+    dryRun: false

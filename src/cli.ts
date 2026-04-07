@@ -164,6 +164,23 @@ program
     })
   })
 
+// repost-media: Repost media from an existing post
+program
+  .command("repost-media")
+  .description("Repost media from an existing Bluesky post")
+  .argument("<uri>", "AT-URI of the post to repost media from")
+  .option("-t, --text <text>", "Optional text to include with the repost")
+  .action(async (uri, opts) => {
+    const { getPlatformAsync } = await import("./platforms/index.js")
+    const platform = await getPlatformAsync("bsky")
+    if (!platform.repostMedia) {
+      console.error("repost-media not supported on this platform")
+      process.exit(1)
+    }
+    const result = await platform.repostMedia(uri, opts.text ?? "")
+    console.log(`Reposted media: ${result.id}`)
+  })
+
 // rate-limits: Show rate limit status
 program
   .command("rate-limits")

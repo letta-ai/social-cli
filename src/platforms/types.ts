@@ -165,6 +165,8 @@ export interface SocialPlatform {
   block?(handle: string): Promise<void>
   /** Update profile fields (avatar, display name, bio). */
   updateProfile?(opts: { avatar?: string; displayName?: string; description?: string }): Promise<void>
+  /** Repost media from an existing post. */
+  repostMedia?(postUri: string, text?: string): Promise<PostResult>
 }
 
 /** Per-platform character limits. */

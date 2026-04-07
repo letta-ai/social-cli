@@ -163,6 +163,91 @@ async function downloadMedia(url: string): Promise<Buffer> {
 }
 
 /**
+ * Fetch media from an existing post and upload to authenticated account.
+ * Returns embed structure for reposting media.
+ */
+async function repostMediaFromPost(agent: Agent, postUri: string): Promise<any> {
+  // Fetch the source post
+  const posts = await agent.app.bsky.feed.getPosts({ uris: [postUri] })
+  const post = posts.data.posts[0]
+  if (!post) throw new Error(`Post not found: ${postUri}`)
+
+  const embed = post.embed
+  if (!embed) return undefined
+
+  // Handle images embed
+  if (embed.$type === "app.bsky.embed.images#view" && (embed as any).images) {
+    const images: Array<{ alt: string; image: any }> = []
+
+    for (const img of (embed as any).images) {
+      const url = img.fullsize ?? img.thumb
+      if (!url) continue
+
+      const imageBytes = await downloadMedia(url)
+      const ext = url.split(".").pop()?.toLowerCase() ?? "png"
+      const mimeTypes: Record<string, string> = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        webp: "image/webp",
+      }
+      const encoding = mimeTypes[ext] ?? "image/png"
+
+      const blob = await agent.uploadBlob(imageBytes, { encoding })
+      images.push({
+        alt: img.alt ?? "",
+        image: blob.data.blob,
+      })
+    }
+
+    if (images.length === 0) return undefined
+    return {
+      $type: "app.bsky.embed.images",
+      images,
+    }
+  }
+
+  // Handle recordWithMedia - extract media portion
+  if (embed.$type === "app.bsky.embed.recordWithMedia#view") {
+    const media = (embed as any).media
+    if (media?.$type === "app.bsky.embed.images#view" && media.images) {
+      const images: Array<{ alt: string; image: any }> = []
+
+      for (const img of media.images) {
+        const url = img.fullsize ?? img.thumb
+        if (!url) continue
+
+        const imageBytes = await downloadMedia(url)
+        const ext = url.split(".").pop()?.toLowerCase() ?? "png"
+        const mimeTypes: Record<string, string> = {
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          png: "image/png",
+          gif: "image/gif",
+          webp: "image/webp",
+        }
+        const encoding = mimeTypes[ext] ?? "image/png"
+
+        const blob = await agent.uploadBlob(imageBytes, { encoding })
+        images.push({
+          alt: img.alt ?? "",
+          image: blob.data.blob,
+        })
+      }
+
+      if (images.length === 0) return undefined
+      return {
+        $type: "app.bsky.embed.images",
+        images,
+      }
+    }
+  }
+
+  return undefined
+}
+
+/**
  * Upload media files to Bluesky and return embed structure.
  */
 async function uploadMedia(agent: Agent, mediaPaths: string[]): Promise<any> {
@@ -606,6 +691,18 @@ export const bluesky: SocialPlatform = {
         rkey: "self",
         record,
       })
+    })
+  },
+
+  async repostMedia(postUri: string, text?: string): Promise<PostResult> {
+    return withSession(async (agent) => {
+      const embed = await repostMediaFromPost(agent, postUri)
+
+      const rt = new RichText({ text: text ?? "" })
+      await rt.detectFacets(agent)
+
+      const res = await agent.post({ text: rt.text, facets: rt.facets, embed })
+      return { platform: "bsky", id: res.uri, uri: res.uri, text: text ?? "" }
     })
   },
 }
