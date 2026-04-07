@@ -12,6 +12,29 @@ import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
 import { writeFileAtomic } from "../util/fs.js"
 
+/**
+ * Provenance information for a dispatch run.
+ * Tracks the source and context of the dispatch operation.
+ */
+export interface ProvenanceInfo {
+  /** Agent ID from config or SOCIAL_CLI_AGENT_ID env var */
+  agentId?: string
+  /** Current working directory where dispatch was invoked */
+  cwd: string
+  /** Scheduler job ID or automation source when available */
+  schedulerJobId?: string
+  /** Resolved platform scope from config */
+  platformScope?: string[]
+  /** Path to the outbox file being dispatched */
+  outboxPath: string
+  /** Path to the inbox file if relevant */
+  inboxPath?: string
+  /** Timestamp when the dispatch run started */
+  dispatchTimestamp: string
+  /** Whether this was a dry run (validation only) */
+  dryRun: boolean
+}
+
 interface DispatchResult {
   action: string
   platform: string
@@ -21,6 +44,8 @@ interface DispatchResult {
   inboxIdsRemoved?: string[]
   archivedOutbox?: string
   error?: string
+  /** Provenance information for this dispatch result */
+  provenance?: ProvenanceInfo
 }
 
 interface SentLedgerEntry {
@@ -32,6 +57,23 @@ interface SentLedgerEntry {
   textHash?: string
   createdId?: string
   timestamp: string
+  // Provenance fields
+  /** Agent ID from config or SOCIAL_CLI_AGENT_ID env var */
+  agentId?: string
+  /** Current working directory where dispatch was invoked */
+  cwd?: string
+  /** Scheduler job ID or automation source when available */
+  schedulerJobId?: string
+  /** Resolved platform scope from config */
+  platformScope?: string[]
+  /** Path to the outbox file being dispatched */
+  outboxPath?: string
+  /** Path to the inbox file if relevant */
+  inboxPath?: string
+  /** Timestamp when the dispatch run started */
+  dispatchTimestamp?: string
+  /** Whether this was a dry run (validation only) */
+  dryRun?: boolean
 }
 
 function hashText(text: string): string {
@@ -54,11 +96,38 @@ function threadKey(platform: string, posts: string[], idempotencyKey?: string): 
   return idempotencyKey ?? `thread:${platform}:${hashText(posts.join("\n\n"))}`
 }
 
+/**
+ * Build provenance info for the current dispatch run.
+ * Gets agent ID from env var (SOCIAL_CLI_AGENT_ID) or config.
+ */
+function buildProvenanceInfo(opts: {
+  filePath: string
+  inboxPath?: string
+  platformScope?: string[]
+  dryRun: boolean
+  schedulerJobId?: string
+}): ProvenanceInfo {
+  const agentId = process.env.SOCIAL_CLI_AGENT_ID
+  return {
+    agentId,
+    cwd: process.cwd(),
+    schedulerJobId: opts.schedulerJobId,
+    platformScope: opts.platformScope,
+    outboxPath: opts.filePath,
+    inboxPath: opts.inboxPath,
+    dispatchTimestamp: new Date().toISOString(),
+    dryRun: opts.dryRun,
+  }
+}
+
 export async function dispatch(opts: {
   file?: string
   dryRun?: boolean
+  /** Optional scheduler job ID or automation source for provenance tracking */
+  schedulerJobId?: string
 }): Promise<void> {
   const filePath = resolve(process.cwd(), opts.file ?? "outbox.yaml")
+  const dispatchTimestamp = new Date().toISOString()
 
   if (!existsSync(filePath)) {
     console.error(`File not found: ${filePath}`)
@@ -87,6 +156,16 @@ export async function dispatch(opts: {
   // Load config for dispatch allowedPlatforms
   const config = loadConfig()
   const allowedPlatforms = config.dispatch?.allowedPlatforms
+  const inboxPath = resolve(process.cwd(), "inbox.yaml")
+
+  // Build provenance info for this dispatch run
+  const provenance = buildProvenanceInfo({
+    filePath,
+    inboxPath: existsSync(inboxPath) ? inboxPath : undefined,
+    platformScope: allowedPlatforms,
+    dryRun: opts.dryRun ?? false,
+    schedulerJobId: opts.schedulerJobId,
+  })
 
   // Validate platform scope for each action
   if (allowedPlatforms && allowedPlatforms.length > 0) {
@@ -213,7 +292,7 @@ export async function dispatch(opts: {
   }
 
   // Load inbox for validation and later pruning
-  const inboxPath = resolve(process.cwd(), "inbox.yaml")
+  // Note: inboxPath is already defined above for provenance
   let inboxNotifications: Array<{ id: string; postId?: string }> = []
   if (existsSync(inboxPath)) {
     try {
@@ -294,6 +373,15 @@ export async function dispatch(opts: {
           textHash: hashText(r.text),
           createdId: res.id,
           timestamp: new Date().toISOString(),
+          // Provenance fields
+          agentId: provenance.agentId,
+          cwd: provenance.cwd,
+          schedulerJobId: provenance.schedulerJobId,
+          platformScope: provenance.platformScope,
+          outboxPath: provenance.outboxPath,
+          inboxPath: provenance.inboxPath,
+          dispatchTimestamp: provenance.dispatchTimestamp,
+          dryRun: provenance.dryRun,
         })
 
         // Prune both the explicit notification id and inbox matches by target alias
@@ -343,6 +431,15 @@ export async function dispatch(opts: {
             textHash: hashText(t.text),
             createdId: res.id,
             timestamp: new Date().toISOString(),
+            // Provenance fields
+            agentId: provenance.agentId,
+            cwd: provenance.cwd,
+            schedulerJobId: provenance.schedulerJobId,
+            platformScope: provenance.platformScope,
+            outboxPath: provenance.outboxPath,
+            inboxPath: provenance.inboxPath,
+            dispatchTimestamp: provenance.dispatchTimestamp,
+            dryRun: provenance.dryRun,
           })
           console.log(`Posted on ${t.platform}: ${res.id}`)
         } catch (err) {
@@ -368,6 +465,15 @@ export async function dispatch(opts: {
           textHash: hashText(t.posts.join("\n\n")),
           createdId: res[0]?.id,
           timestamp: new Date().toISOString(),
+          // Provenance fields
+          agentId: provenance.agentId,
+          cwd: provenance.cwd,
+          schedulerJobId: provenance.schedulerJobId,
+          platformScope: provenance.platformScope,
+          outboxPath: provenance.outboxPath,
+          inboxPath: provenance.inboxPath,
+          dispatchTimestamp: provenance.dispatchTimestamp,
+          dryRun: provenance.dryRun,
         })
         console.log(`Thread posted on ${t.platform}: ${res.length} posts`)
       } catch (err) {
@@ -499,11 +605,13 @@ export async function dispatch(opts: {
         result.inboxIdsRemoved = inboxIdsRemoved.filter((id) => id === result.targetId)
       }
     }
+    // Add provenance to each result
+    result.provenance = provenance
   }
 
   // Write results
   const resultPath = resolve(process.cwd(), "dispatch_result.yaml")
-  writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved }, { lineWidth: 120 }))
+  writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved, provenance }, { lineWidth: 120 }))
 
   // Persist processed set for future cycles
   const newProcessed = new Set([...persistentProcessed, ...processedNotifIds, ...getLedgerProcessedIds()])
