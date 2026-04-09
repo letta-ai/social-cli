@@ -72,6 +72,7 @@ social-cli posts alice.bsky.social -n 10     # → stdout YAML
 social-cli profile alice.bsky.social         # → stdout YAML
 social-cli rate-limits                       # → stdout YAML
 social-cli whoami                            # → stdout YAML (all platforms)
+social-cli blog --file post.md               # publish to GreenGale
 ```
 
 ### Profile management
@@ -131,6 +132,39 @@ dispatch:
       id: "notif_003"
       reason: "spam"
 ```
+
+## Blog publishing
+
+Publish long-form content to GreenGale (`app.greengale.document`):
+
+```bash
+# From file (supports frontmatter)
+social-cli blog --file my-post.md
+
+# With options
+social-cli blog --file my-post.md --title "Custom Title" --slug "custom-slug"
+
+# Inline content
+social-cli blog --title "Quick Note" --content "Markdown content here"
+```
+
+Options:
+- `--file` — Path to markdown file
+- `--title` — Override title (or use frontmatter `title:`)
+- `--slug` — Override slug (defaults to filename without date prefix)
+- `--subtitle` — Optional subtitle
+
+Frontmatter is stripped automatically:
+
+```markdown
+---
+title: My Post
+slug: my-post
+---
+# Actual content starts here
+```
+
+Published posts appear at: `https://greengale.app/{handle}/{slug}`
 
 ## Annotations
 
