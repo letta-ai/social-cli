@@ -54,6 +54,8 @@ export interface Notification {
   userContext?: string
   media?: NotificationMedia[]
   embed?: EmbedInfo
+  /** True if the account owner has blocked this author. */
+  blocked?: boolean
 }
 
 export interface EmbedInfo {
@@ -163,6 +165,8 @@ export interface SocialPlatform {
   follow?(handle: string): Promise<void>
   /** Block a user by handle or DID. */
   block?(handle: string): Promise<void>
+  /** Get list of blocked user DIDs. */
+  getBlocklist?(): Promise<string[]>
   /** Update profile fields (avatar, display name, bio). */
   updateProfile?(opts: { avatar?: string; displayName?: string; description?: string }): Promise<void>
   /** Repost media from an existing post. */
