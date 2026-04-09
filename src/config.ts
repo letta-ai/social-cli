@@ -4,7 +4,7 @@
  */
 
 import { readFileSync, existsSync } from "node:fs"
-import { resolve, dirname } from "node:path"
+import { resolve } from "node:path"
 import { parse } from "yaml"
 import { config as loadDotenv } from "dotenv"
 
@@ -40,6 +40,14 @@ export interface Config {
   state?: StateConfig
 }
 
+interface RawConfig {
+  accounts?: Record<string, AccountConfig>
+  sync?: SyncConfig
+  dispatch?: DispatchConfig
+  state?: StateConfig
+  [key: string]: unknown
+}
+
 const CONFIG_PATHS = [
   resolve(process.cwd(), "config.yaml"),
   resolve(process.env.HOME ?? "~", ".config/social-cli/config.yaml"),
@@ -49,7 +57,20 @@ export function loadConfig(): Config {
   for (const p of CONFIG_PATHS) {
     if (existsSync(p)) {
       const raw = readFileSync(p, "utf-8")
-      return parse(raw) as Config
+      const parsed = (parse(raw) as RawConfig | undefined) || {}
+      const accounts: Record<string, AccountConfig> = { ...(parsed.accounts || {}) }
+
+      for (const [key, value] of Object.entries(parsed)) {
+        if (key === "accounts" || key === "sync") continue
+        if (value && typeof value === "object" && "handle" in value) {
+          accounts[key] = value as AccountConfig
+        }
+      }
+
+      return {
+        accounts,
+        sync: parsed.sync,
+      }
     }
   }
 

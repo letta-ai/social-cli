@@ -22,17 +22,23 @@ program
   .option("-o, --output <file>", "Output file", "inbox.yaml")
   .option("--max-items <number>", "Max inbox items before truncating oldest", "200")
   .option("--users-dir <path>", "Directory of user memory files for context enrichment")
+  .option("--auto-create-users", "Create missing user memory files during sync")
   .option("--reset", "Clear cursors and re-fetch all notifications from scratch")
   .option("--clear", "Clear both cursors and the local inbox for a fully fresh start")
   .action(async (opts) => {
-    const { sync } = await import("./commands/sync.js")
+    const [{ sync }, { loadConfig }] = await Promise.all([
+      import("./commands/sync.js"),
+      import("./config.js"),
+    ])
+    const config = loadConfig()
     await sync({
       platforms: opts.platform,
       unreadOnly: opts.unreadOnly,
       limit: parseInt(opts.limit),
       output: opts.output,
       maxItems: parseInt(opts.maxItems),
-      usersDir: opts.usersDir,
+      usersDir: opts.usersDir ?? config.sync?.usersDir,
+      autoCreateUsers: opts.autoCreateUsers || config.sync?.autoCreateUsers,
       reset: opts.reset,
       clear: opts.clear,
     })
