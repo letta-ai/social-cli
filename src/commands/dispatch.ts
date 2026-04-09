@@ -17,6 +17,7 @@ import { resolve, join, basename } from "node:path"
 import { createHash } from "node:crypto"
 import { parse, stringify } from "yaml"
 import { getPlatformAsync } from "../platforms/index.js"
+import type { PostOpts } from "../platforms/types.js"
 import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
 import { writeFileAtomic } from "../util/fs.js"
@@ -110,8 +111,9 @@ function replyTargetKey(platform: string, targetId: string): string {
   return `reply-target:${platform}:${targetId}`
 }
 
-function postKey(platform: string, text: string, idempotencyKey?: string): string {
-  return idempotencyKey ?? `post:${platform}:${hashText(text)}`
+function postKey(platform: string, text: string, idempotencyKey?: string, quoteId?: string, replyTo?: string): string {
+  const suffix = quoteId ? `:q:${quoteId}` : replyTo ? `:r:${replyTo}` : ""
+  return idempotencyKey ?? `post:${platform}:${hashText(text)}${suffix}`
 }
 
 function threadKey(platform: string, posts: string[], idempotencyKey?: string): string {
@@ -301,7 +303,7 @@ async function dispatchPlatform(
             ? Object.keys(action.post.platforms)
             : ["bsky"]
         for (const plat of platforms) {
-          const key = postKey(plat, action.post.text, action.post.idempotencyKey)
+          const key = postKey(plat, action.post.text, action.post.idempotencyKey, action.post.quoteId, action.post.replyTo)
           if (sentKeys.has(key)) {
             preflightErrors.push(`Replay detected for post on ${plat}`)
           }
@@ -309,7 +311,7 @@ async function dispatchPlatform(
       }
       if (action.post.platforms && typeof action.post.platforms === "object" && !Array.isArray(action.post.platforms)) {
         for (const [plat, text] of Object.entries(action.post.platforms)) {
-          const key = postKey(plat, text, action.post.idempotencyKey)
+          const key = postKey(plat, text, action.post.idempotencyKey, action.post.quoteId, action.post.replyTo)
           if (sentKeys.has(key)) {
             preflightErrors.push(`Replay detected for post on ${plat}`)
           }
@@ -476,10 +478,20 @@ async function dispatchPlatform(
       for (const t of targets) {
         try {
           const plat = await getPlatformAsync(t.platform)
-          const res = await plat.post(t.text)
+          let res
+          if (p.replyTo) {
+            // Route through reply when replyTo is specified
+            const replyOpts: PostOpts = {}
+            if (p.quoteId) replyOpts.quoteId = p.quoteId
+            res = await plat.reply(p.replyTo, t.text, replyOpts)
+          } else {
+            const postOpts: PostOpts = {}
+            if (p.quoteId) postOpts.quoteId = p.quoteId
+            res = await plat.post(t.text, postOpts)
+          }
           results.push({ action: "post", platform: t.platform, status: "ok", id: res.id })
           sentEntriesToAppend.push({
-            key: postKey(t.platform, t.text, p.idempotencyKey),
+            key: postKey(t.platform, t.text, p.idempotencyKey, p.quoteId, p.replyTo),
             action: "post",
             platform: t.platform,
             textHash: hashText(t.text),

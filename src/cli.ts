@@ -107,14 +107,20 @@ program
   .argument("<text>", "Text to post")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("--quote <id>", "Quote/repost a post by ID")
+  .option("--reply-to <id>", "Post as a reply to this post ID")
   .option("-m, --media <paths...>", "Media file paths to attach")
   .action(async (text, opts) => {
     const { validateText } = await import("./util/validate.js")
     validateText(opts.platform, text)
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
-    const result = await platform.post(text, { quoteId: opts.quote, media: opts.media })
-    console.log(`Posted: ${result.id}`)
+    if (opts.replyTo) {
+      const result = await platform.reply(opts.replyTo, text, { quoteId: opts.quote, media: opts.media })
+      console.log(`Posted (reply): ${result.id}`)
+    } else {
+      const result = await platform.post(text, { quoteId: opts.quote, media: opts.media })
+      console.log(`Posted: ${result.id}`)
+    }
   })
 
 // reply: Quick reply

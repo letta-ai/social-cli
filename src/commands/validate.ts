@@ -16,6 +16,10 @@ export interface OutboxAction {
   post?: {
     text?: string
     platforms?: string[] | Record<string, string>
+    /** Embed this post as a quote (AT URI or tweet ID). */
+    quoteId?: string
+    /** Post as a reply to this URI (AT URI or tweet ID). */
+    replyTo?: string
     idempotencyKey?: string
   }
   thread?: {
@@ -113,6 +117,9 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       const p = action.post!
       if (!p.text && !p.platforms) {
         errors.push(`${prefix}: post needs 'text' or 'platforms' with per-platform text`)
+      }
+      if (p.quoteId && p.replyTo) {
+        errors.push(`${prefix}: post cannot have both 'quoteId' and 'replyTo'`)
       }
       // Validate char limits for each platform
       if (p.text && p.platforms && Array.isArray(p.platforms)) {
