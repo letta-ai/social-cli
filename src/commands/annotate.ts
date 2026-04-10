@@ -1,6 +1,6 @@
 /**
  * annotate: Attach an annotation to a post.
- * Currently Bluesky-only (at.margin.annotation).
+ * Currently Bluesky-only (at.margin.note).
  */
 
 import { getPlatformAsync } from "../platforms/index.js"
