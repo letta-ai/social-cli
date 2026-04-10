@@ -256,6 +256,26 @@ Name your files by ID for stability (handles change), or by handle for readabili
 - Dispatch continues through failures — check `dispatch_result.yaml` for what succeeded.
 - If a thread fails mid-chain, `dispatch_result.yaml` includes `resumeFrom` with the index and remaining posts so you can retry from where it stopped.
 
+## Critical: Dispatch vs Quick Commands
+
+There are two ways to post: the **dispatch pipeline** and **quick commands**. They are not interchangeable.
+
+**Always use dispatch when replying to inbox notifications.** The dispatch pipeline marks notifications as processed and removes them from `inbox.yaml`. Quick commands (`reply`, `post`) do not. If you use `reply` directly on an inbox item, the notification stays in the inbox and will reappear next sync — you'll waste time re-investigating something you already handled.
+
+```
+# CORRECT — replying to a notification
+# Write outbox.yaml with a reply action, then:
+social-cli dispatch
+
+# WRONG — replying to a notification
+social-cli reply "Thanks" --id at://... -p bsky
+# ⚠️ Notification stays in inbox, reappears next sync
+```
+
+**Quick commands are fine for non-inbox actions:** posting original threads, adding source replies to your own posts, following users, liking posts. These aren't driven by the inbox, so there's nothing to mark as processed.
+
+Rule of thumb: **if you're responding to something that came from `sync`, go through `dispatch`.**
+
 ## Decision-Making Guidelines
 
 When processing inbox notifications:
@@ -263,11 +283,10 @@ When processing inbox notifications:
 1. **Read the `userContext` first.** If you have history with someone, use it. Don't treat returning users as strangers.
 2. **Use `ignore` liberally.** Not every mention needs a response. Spam, irrelevant tags, and low-signal interactions should be explicitly ignored with a reason.
 3. **Check rate limits** before large operations (bulk replies, threads).
-4. **Prefer `dispatch` over quick commands** for batch operations. The outbox gives you validation, atomic execution, and an audit trail.
-5. **Dry-run first** when constructing complex outboxes.
-6. **Research before posting.** Use `search`, `posts`, and `profile` to understand context before engaging.
-7. **Respect character limits.** Write concisely. If a thought needs more space, use a thread.
-8. **Different platforms, different audiences.** Use per-platform text in posts when the tone or content should differ.
+4. **Dry-run first** when constructing complex outboxes.
+5. **Research before posting.** Use `search`, `posts`, and `profile` to understand context before engaging.
+6. **Respect character limits.** Write concisely. If a thought needs more space, use a thread.
+7. **Different platforms, different audiences.** Use per-platform text in posts when the tone or content should differ.
 
 ## Complete Command Reference
 
