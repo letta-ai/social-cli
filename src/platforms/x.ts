@@ -16,6 +16,7 @@ import type {
   FeedItem,
   RateLimitInfo,
   ProfileInfo,
+  ThreadOpts,
 } from "./types.js"
 import { loadConfig, loadCredentials } from "../config.js"
 import { withRetry } from "../util/retry.js"
@@ -177,7 +178,7 @@ export const x: SocialPlatform = {
     }
   },
 
-  async thread(posts: string[], replyTo?: string): Promise<PostResult[]> {
+  async thread(posts: string[], replyTo?: string, _opts?: ThreadOpts): Promise<PostResult[]> {
     const client = getClient()
     const results: PostResult[] = []
     let currentReplyTo = replyTo

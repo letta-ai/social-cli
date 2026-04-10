@@ -17,6 +17,11 @@ export interface PostResult {
   text: string
 }
 
+export interface ThreadOpts {
+  /** Media file paths to attach to the first post. */
+  media?: string[]
+}
+
 export interface AnnotateOpts {
   /** W3C motivation: commenting, highlighting, describing. */
   motivation?: string
@@ -143,7 +148,7 @@ export interface SocialPlatform {
   post(text: string, opts?: PostOpts): Promise<PostResult>
   reply(targetId: string, text: string, opts?: PostOpts): Promise<PostResult>
   /** Post a thread. If replyTo is provided, the thread is rooted as a reply to that post. */
-  thread(posts: string[], replyTo?: string): Promise<PostResult[]>
+  thread(posts: string[], replyTo?: string, opts?: ThreadOpts): Promise<PostResult[]>
   notifications(opts?: NotifOpts): Promise<NotifResult>
   search(query: string, limit?: number): Promise<SearchResult[]>
   feed(limit?: number, feedUri?: string): Promise<FeedItem[]>

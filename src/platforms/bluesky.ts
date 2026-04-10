@@ -19,6 +19,7 @@ import type {
   FeedItem,
   RateLimitInfo,
   AnnotateOpts,
+  ThreadOpts,
   ProfileInfo,
   EmbedInfo,
 } from "./types.js"
@@ -247,11 +248,32 @@ async function repostMediaFromPost(agent: Agent, postUri: string): Promise<any> 
   return undefined
 }
 
+/** Read width/height from a JPEG buffer by scanning for SOF markers. */
+function readJpegDimensions(buf: Buffer): { width: number; height: number } | undefined {
+  let i = 2 // skip SOI
+  while (i < buf.length - 1) {
+    if (buf[i] !== 0xff) return undefined
+    const marker = buf[i + 1]
+    // SOF0 (0xC0) or SOF2 (0xC2) — baseline or progressive
+    if (marker === 0xc0 || marker === 0xc2) {
+      if (i + 9 > buf.length) return undefined
+      const height = buf.readUInt16BE(i + 5)
+      const width = buf.readUInt16BE(i + 7)
+      return { width, height }
+    }
+    // Skip this marker segment
+    if (i + 3 >= buf.length) return undefined
+    const segLen = buf.readUInt16BE(i + 2)
+    i += 2 + segLen
+  }
+  return undefined
+}
+
 /**
  * Upload media files to Bluesky and return embed structure.
  */
 async function uploadMedia(agent: Agent, mediaPaths: string[]): Promise<any> {
-  const images: Array<{ alt: string; image: any }> = []
+  const images: Array<{ alt: string; image: any; aspectRatio?: { width: number; height: number } }> = []
 
   for (const path of mediaPaths) {
     const ext = extname(path).toLowerCase()
@@ -267,9 +289,24 @@ async function uploadMedia(agent: Agent, mediaPaths: string[]): Promise<any> {
     const imageBytes = readFileSync(path)
     const blob = await agent.uploadBlob(imageBytes, { encoding })
 
+    // Read image dimensions for aspectRatio (PNG: width/height at bytes 16-23)
+    let aspectRatio: { width: number; height: number } | undefined
+    if (ext === ".png" && imageBytes.length > 24) {
+      const width = imageBytes.readUInt32BE(16)
+      const height = imageBytes.readUInt32BE(20)
+      if (width > 0 && height > 0) {
+        aspectRatio = { width, height }
+      }
+    } else if ((ext === ".jpg" || ext === ".jpeg") && imageBytes.length > 2) {
+      // JPEG: scan for SOF0/SOF2 marker to get dimensions
+      const dims = readJpegDimensions(imageBytes)
+      if (dims) aspectRatio = dims
+    }
+
     images.push({
       alt: "",
       image: blob.data.blob,
+      ...(aspectRatio ? { aspectRatio } : {}),
     })
   }
 
@@ -351,7 +388,7 @@ export const bluesky: SocialPlatform = {
     })
   },
 
-  async thread(posts: string[], replyTo?: string): Promise<PostResult[]> {
+  async thread(posts: string[], replyTo?: string, opts?: ThreadOpts): Promise<PostResult[]> {
     // Thread uses withSession for initial auth, but individual posts
     // are retried individually to avoid re-posting successful ones.
     const agent = await getAgent()
@@ -369,13 +406,19 @@ export const bluesky: SocialPlatform = {
       rootRef = record.reply?.root ?? parentRef
     }
 
-    for (const text of posts) {
+    for (let idx = 0; idx < posts.length; idx++) {
+      const text = posts[idx]
       const rt = new RichText({ text })
       await rt.detectFacets(agent)
 
       const postData: any = { text: rt.text, facets: rt.facets }
       if (parentRef && rootRef) {
         postData.reply = { parent: parentRef, root: rootRef }
+      }
+
+      // Attach media to the first post only
+      if (idx === 0 && opts?.media && opts.media.length > 0) {
+        postData.embed = await uploadMedia(agent, opts.media)
       }
 
       const res = await withRetry(() => agent.post(postData))

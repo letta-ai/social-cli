@@ -23,6 +23,9 @@
   "packageManager": "pnpm@10.20.0",
   "dependencies": {
     "@atproto/api": "^0.19.4",
+    "@atproto/identity": "^0.4.12",
+    "@cosmik.network/semble-pds-client": "^0.0.9",
+    "@resvg/resvg-js": "^2.6.2",
     "commander": "^14.0.3",
     "dotenv": "^17.3.1",
     "twitter-api-v2": "^1.29.0",
