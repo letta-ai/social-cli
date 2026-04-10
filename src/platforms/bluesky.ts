@@ -522,7 +522,7 @@ export const bluesky: SocialPlatform = {
 
     const sourceHash = createHash("sha256").update(targetUri).digest("hex")
     const record: Record<string, any> = {
-      $type: "at.margin.annotation",
+      $type: "at.margin.note",
       createdAt: new Date().toISOString(),
       target: {
         source: targetUri,
@@ -545,7 +545,7 @@ export const bluesky: SocialPlatform = {
 
     const res = await agent.com.atproto.repo.createRecord({
       repo: did,
-      collection: "at.margin.annotation",
+      collection: "at.margin.note",
       record,
     })
 
