@@ -168,7 +168,7 @@ Published posts appear at: `https://greengale.app/{handle}/{slug}`
 
 ## Annotations
 
-Bluesky annotations use the `at.margin.annotation` lexicon (W3C Web Annotation model). They work on any URL, not just ATProto posts. Annotations appear in [margin.at](https://margin.at) and Semble.
+Bluesky annotations use the `at.margin.note` lexicon (W3C Web Annotation model, unified format). They work on any URL, not just ATProto posts. Annotations appear in [margin.at](https://margin.at) and Semble.
 
 ```bash
 # Annotate a web page
