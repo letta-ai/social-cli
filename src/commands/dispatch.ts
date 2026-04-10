@@ -225,6 +225,8 @@ async function dispatchPlatform(
       if (action.reply) actionPlatform = action.reply.platform
       else if (action.thread) actionPlatform = action.thread.platform
       else if (action.annotate) actionPlatform = action.annotate.platform
+      else if (action.bookmark) actionPlatform = action.bookmark.platform
+      else if (action.highlight) actionPlatform = action.highlight.platform
       else if (action.follow) actionPlatform = action.follow.platform
       else if (action.like) actionPlatform = action.like.platform
       else if (action.post?.platforms) {
@@ -615,6 +617,40 @@ async function dispatchPlatform(
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "annotate", platform: a.platform, status: "error", error: msg })
         console.error(`[${platform}] Annotate failed on ${a.platform}: ${msg}`)
+      }
+    }
+
+    if (action.bookmark) {
+      const b = action.bookmark
+      try {
+        const plat = await getPlatformAsync(b.platform)
+        if (!plat.annotate) {
+          throw new Error(`Platform ${b.platform} does not support annotations`)
+        }
+        const res = await plat.annotate(b.id, b.text ?? "", { motivation: "bookmarking" })
+        results.push({ action: "bookmark", platform: b.platform, status: "ok", id: res.id })
+        console.log(`[${platform}] Bookmarked on ${b.platform}: ${res.id}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        results.push({ action: "bookmark", platform: b.platform, status: "error", error: msg })
+        console.error(`[${platform}] Bookmark failed on ${b.platform}: ${msg}`)
+      }
+    }
+
+    if (action.highlight) {
+      const h = action.highlight
+      try {
+        const plat = await getPlatformAsync(h.platform)
+        if (!plat.annotate) {
+          throw new Error(`Platform ${h.platform} does not support annotations`)
+        }
+        const res = await plat.annotate(h.id, h.text ?? "", { motivation: "highlighting", quote: h.quote })
+        results.push({ action: "highlight", platform: h.platform, status: "ok", id: res.id })
+        console.log(`[${platform}] Highlighted on ${h.platform}: ${res.id}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        results.push({ action: "highlight", platform: h.platform, status: "error", error: msg })
+        console.error(`[${platform}] Highlight failed on ${h.platform}: ${msg}`)
       }
     }
   }

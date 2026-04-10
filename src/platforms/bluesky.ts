@@ -528,8 +528,11 @@ export const bluesky: SocialPlatform = {
         source: targetUri,
         sourceHash,
       },
-      body: { value: text },
       motivation: opts?.motivation ?? "commenting",
+    }
+
+    if (text) {
+      record.body = { value: text }
     }
 
     if (opts?.quote) {

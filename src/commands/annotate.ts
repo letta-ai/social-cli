@@ -8,7 +8,7 @@ import { getPlatformAsync } from "../platforms/index.js"
 export async function annotate(opts: {
   platform: string
   id: string
-  text: string
+  text?: string
   motivation?: string
   quote?: string
 }): Promise<void> {
@@ -19,7 +19,7 @@ export async function annotate(opts: {
     process.exit(1)
   }
 
-  const result = await platform.annotate(opts.id, opts.text, {
+  const result = await platform.annotate(opts.id, opts.text ?? "", {
     motivation: opts.motivation,
     quote: opts.quote,
   })

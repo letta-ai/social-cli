@@ -168,7 +168,7 @@ program
 program
   .command("annotate")
   .description("Annotate a URL or post (Bluesky only)")
-  .argument("<text>", "Annotation text")
+  .argument("[text]", "Annotation text (optional for bookmarking)")
   .requiredOption("--target <uri>", "URL or AT-URI to annotate")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("--motivation <type>", "W3C motivation", "commenting")
@@ -180,6 +180,42 @@ program
       id: opts.target,
       text,
       motivation: opts.motivation,
+      quote: opts.quote,
+    })
+  })
+
+// bookmark: Save a post for later
+program
+  .command("bookmark")
+  .description("Bookmark a post (Bluesky only, via at.margin.note)")
+  .requiredOption("--target <uri>", "URL or AT-URI to bookmark")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .option("-t, --text <text>", "Optional note")
+  .action(async (opts) => {
+    const { annotate } = await import("./commands/annotate.js")
+    await annotate({
+      platform: opts.platform,
+      id: opts.target,
+      text: opts.text,
+      motivation: "bookmarking",
+    })
+  })
+
+// highlight: Highlight a passage in a post
+program
+  .command("highlight")
+  .description("Highlight text in a post (Bluesky only, via at.margin.note)")
+  .requiredOption("--target <uri>", "URL or AT-URI to highlight")
+  .requiredOption("--quote <text>", "Exact text to highlight")
+  .option("-p, --platform <platform>", "Platform", "bsky")
+  .option("-t, --text <text>", "Optional note about the highlight")
+  .action(async (opts) => {
+    const { annotate } = await import("./commands/annotate.js")
+    await annotate({
+      platform: opts.platform,
+      id: opts.target,
+      text: opts.text,
+      motivation: "highlighting",
       quote: opts.quote,
     })
   })

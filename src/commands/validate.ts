@@ -35,6 +35,17 @@ export interface OutboxAction {
     text: string
     motivation?: string
   }
+  bookmark?: {
+    platform: string
+    id: string
+    text?: string
+  }
+  highlight?: {
+    platform: string
+    id: string
+    quote: string
+    text?: string
+  }
   follow?: {
     platform: string
     handle: string
@@ -85,12 +96,12 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
     const prefix = `Action ${i}`
 
     // Determine action type
-    const types = ["reply", "post", "thread", "annotate", "follow", "like", "ignore"].filter(
+    const types = ["reply", "post", "thread", "annotate", "bookmark", "highlight", "follow", "like", "ignore"].filter(
       (t) => action[t as keyof OutboxAction] !== undefined,
     )
 
     if (types.length === 0) {
-      errors.push(`${prefix}: No recognized action type (reply, post, thread, annotate, follow, like, ignore)`)
+      errors.push(`${prefix}: No recognized action type (reply, post, thread, annotate, bookmark, highlight, follow, like, ignore)`)
       continue
     }
     if (types.length > 1) {
@@ -165,6 +176,25 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!a.text) errors.push(`${prefix}: annotate missing 'text'`)
       if (a.platform && a.platform !== "bsky") {
         warnings.push(`${prefix}: annotations only supported on bsky`)
+      }
+    }
+
+    if (type === "bookmark") {
+      const b = action.bookmark!
+      if (!b.platform) errors.push(`${prefix}: bookmark missing 'platform'`)
+      if (!b.id) errors.push(`${prefix}: bookmark missing 'id'`)
+      if (b.platform && b.platform !== "bsky") {
+        warnings.push(`${prefix}: bookmarks only supported on bsky`)
+      }
+    }
+
+    if (type === "highlight") {
+      const h = action.highlight!
+      if (!h.platform) errors.push(`${prefix}: highlight missing 'platform'`)
+      if (!h.id) errors.push(`${prefix}: highlight missing 'id'`)
+      if (!h.quote) errors.push(`${prefix}: highlight missing 'quote'`)
+      if (h.platform && h.platform !== "bsky") {
+        warnings.push(`${prefix}: highlights only supported on bsky`)
       }
     }
 
