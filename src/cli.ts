@@ -7,6 +7,14 @@
 
 import { Command } from "commander"
 
+function resolveUsersDir(): string | undefined {
+  if (process.env.MEMORY_DIR) {
+    return `${process.env.MEMORY_DIR}/reference/sensemaker/users`
+  }
+  process.stderr.write("[warn] MEMORY_DIR not set — user context enrichment disabled. This tool is designed for Letta agents with persistent memory.\n")
+  return undefined
+}
+
 const program = new Command()
   .name("social-cli")
   .description("Agent-optimized social media CLI")
@@ -37,7 +45,7 @@ program
       limit: parseInt(opts.limit),
       output: opts.output,
       maxItems: parseInt(opts.maxItems),
-      usersDir: opts.usersDir ?? config.sync?.usersDir,
+      usersDir: opts.usersDir ?? config.sync?.usersDir ?? resolveUsersDir(),
       autoCreateUsers: opts.autoCreateUsers || config.sync?.autoCreateUsers,
       reset: opts.reset,
       clear: opts.clear,
