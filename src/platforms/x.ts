@@ -155,12 +155,38 @@ function buildThreadContext(
   return context.map(({ author, text }) => ({ author, text }))
 }
 
+import type { SendTweetV2Params } from "twitter-api-v2"
+
+type MediaIds = NonNullable<NonNullable<SendTweetV2Params["media"]>["media_ids"]>
+
+/** Upload media files to X via v1 API and return media IDs for v2 tweets. */
+async function uploadMediaX(client: TwitterApi, mediaPaths: string[]): Promise<MediaIds | undefined> {
+  // X allows 1-4 media per tweet
+  const paths = mediaPaths.slice(0, 4)
+  if (paths.length === 0) return undefined
+
+  const mediaIds: string[] = []
+  for (const filePath of paths) {
+    const mediaId = await withRetry(() => client.v1.uploadMedia(filePath))
+    mediaIds.push(mediaId)
+  }
+
+  // Cast to the union tuple type X expects
+  return mediaIds as unknown as MediaIds
+}
+
 export const x: SocialPlatform = {
   name: "x",
 
-  async post(text: string, _opts?: PostOpts): Promise<PostResult> {
+  async post(text: string, opts?: PostOpts): Promise<PostResult> {
     const client = getClient()
-    const res = await withRetry(() => client.v2.tweet(text))
+
+    const mediaIds = opts?.media && opts.media.length > 0
+      ? await uploadMediaX(client, opts.media) : undefined
+
+    const res = await withRetry(() =>
+      client.v2.tweet(text, mediaIds ? { media: { media_ids: mediaIds } } : undefined),
+    )
     return {
       platform: "x",
       id: res.data.id,
@@ -168,9 +194,15 @@ export const x: SocialPlatform = {
     }
   },
 
-  async reply(targetId: string, text: string, _opts?: PostOpts): Promise<PostResult> {
+  async reply(targetId: string, text: string, opts?: PostOpts): Promise<PostResult> {
     const client = getClient()
-    const res = await withRetry(() => client.v2.reply(text, targetId))
+
+    const mediaIds = opts?.media && opts.media.length > 0
+      ? await uploadMediaX(client, opts.media) : undefined
+
+    const res = await withRetry(() =>
+      client.v2.reply(text, targetId, mediaIds ? { media: { media_ids: mediaIds } } : undefined),
+    )
     return {
       platform: "x",
       id: res.data.id,
@@ -178,14 +210,23 @@ export const x: SocialPlatform = {
     }
   },
 
-  async thread(posts: string[], replyTo?: string, _opts?: ThreadOpts): Promise<PostResult[]> {
+  async thread(posts: string[], replyTo?: string, opts?: ThreadOpts): Promise<PostResult[]> {
     const client = getClient()
     const results: PostResult[] = []
     let currentReplyTo = replyTo
 
-    for (const text of posts) {
+    // Upload media once, attach to first post only
+    const mediaIds = opts?.media && opts.media.length > 0
+      ? await uploadMediaX(client, opts.media) : undefined
+
+    for (let idx = 0; idx < posts.length; idx++) {
+      const text = posts[idx]
+      const mediaForPost = idx === 0 ? mediaIds : undefined
+
       const res = await withRetry(() =>
-        currentReplyTo ? client.v2.reply(text, currentReplyTo) : client.v2.tweet(text),
+        currentReplyTo
+          ? client.v2.reply(text, currentReplyTo!, mediaForPost ? { media: { media_ids: mediaForPost } } : undefined)
+          : client.v2.tweet(text, mediaForPost ? { media: { media_ids: mediaForPost } } : undefined),
       )
 
       results.push({
