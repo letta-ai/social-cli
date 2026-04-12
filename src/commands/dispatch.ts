@@ -21,6 +21,8 @@ import type { PostOpts } from "../platforms/types.js"
 import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
 import { writeFileAtomic } from "../util/fs.js"
+import { runHooks } from "../hooks.js"
+import type { HookContext } from "../types/hooks.js"
 import {
   getPlatformFilePath,
   getSharedFilePath,
@@ -143,6 +145,41 @@ function buildProvenanceInfo(opts: {
     dispatchTimestamp: new Date().toISOString(),
     dryRun: opts.dryRun,
     platform: opts.platform,
+  }
+}
+
+/**
+ * Build hook context from an outbox action and optional result.
+ */
+function buildHookContext(
+  action: OutboxAction,
+  platform: string,
+  outboxPath: string,
+  opts?: { actionId?: string; result?: "success" | "error"; error?: string; text?: string },
+): HookContext {
+  let event = "post"
+  let text = opts?.text ?? ""
+  let targetId: string | undefined
+
+  if (action.reply) { event = "reply"; text = action.reply.text; targetId = action.reply.id }
+  else if (action.thread) { event = "thread"; text = action.thread.posts.join("\n") }
+  else if (action.post) { event = "post"; text = action.post.text ?? "" }
+  else if (action.follow) { event = "follow" }
+  else if (action.like) { event = "like"; targetId = action.like.id }
+  else if (action.annotate) { event = "annotate"; text = action.annotate.text; targetId = action.annotate.id }
+  else if (action.bookmark) { event = "bookmark"; targetId = action.bookmark.id }
+  else if (action.highlight) { event = "highlight"; targetId = action.highlight.id }
+  else if (action.ignore) { event = "ignore" }
+
+  return {
+    event,
+    platform,
+    actionId: opts?.actionId,
+    targetId,
+    text,
+    outboxPath,
+    result: opts?.result ?? "success",
+    error: opts?.error,
   }
 }
 
@@ -413,6 +450,19 @@ async function dispatchPlatform(
       continue
     }
 
+    // Pre-dispatch hooks: synchronous, blocking
+    const preCtx = buildHookContext(action, platform, outboxPath)
+    const preResult = await runHooks(config.hooks, "preDispatch", preCtx)
+    if (preResult.abort) {
+      console.error(`[${platform}] Dispatch aborted by pre-dispatch hook: ${preResult.reason}`)
+      process.exit(2)
+    }
+    if (preResult.blocked) {
+      console.log(`[${platform}] Action blocked by pre-dispatch hook: ${preResult.reason}`)
+      results.push({ action: preCtx.event, platform, status: "error", error: `Blocked by hook: ${preResult.reason}` })
+      continue
+    }
+
     if (action.reply) {
       const r = action.reply
       try {
@@ -673,6 +723,27 @@ async function dispatchPlatform(
         results.push({ action: "highlight", platform: h.platform, status: "error", error: msg })
         console.error(`[${platform}] Highlight failed on ${h.platform}: ${msg}`)
       }
+    }
+  }
+
+  // Post-dispatch and on-error hooks (async, fire-and-forget)
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    const action = outbox.dispatch[i]
+    if (!action) continue
+
+    if (result.status === "ok") {
+      const postCtx = buildHookContext(action, platform, outboxPath, {
+        actionId: result.id,
+        result: "success",
+      })
+      runHooks(config.hooks, "postDispatch", postCtx)
+    } else {
+      const errCtx = buildHookContext(action, platform, outboxPath, {
+        result: "error",
+        error: result.error,
+      })
+      runHooks(config.hooks, "onError", errCtx)
     }
   }
 
