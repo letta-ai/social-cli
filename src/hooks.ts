@@ -5,8 +5,7 @@
  * and returns results with blocking semantics.
  */
 
-import { execFile } from "node:child_process"
-import { resolve } from "node:path"
+import { execFile, type ChildProcess } from "node:child_process"
 import type {
   HookDefinition,
   HookLifecycle,
@@ -56,9 +55,10 @@ function executeHook(
   timeout: number,
 ): Promise<HookResult> {
   return new Promise((resolve) => {
+    let settled = false
     const env = buildEnv(ctx)
 
-    const child = execFile(
+    const child: ChildProcess = execFile(
       "bash",
       ["-c", hook.command],
       {
@@ -68,18 +68,22 @@ function executeHook(
         shell: false,
       },
       (err, stdout, stderr) => {
+        if (settled) return
+        settled = true
         resolve({
           hook,
           timedOut: err?.killed === true && err?.signal === "SIGTERM",
-          exitCode: err ? (err.killed ? null : (typeof err.code === "number" ? err.code : 1)) : 0,
+          exitCode: child.exitCode ?? (err ? 1 : 0),
           stdout: stdout?.trim() ?? "",
           stderr: stderr?.trim() ?? "",
         })
       },
     )
 
-    // Prevent zombie processes
+    // Prevent zombie processes — only resolve if callback hasn't fired
     child.on("error", () => {
+      if (settled) return
+      settled = true
       resolve({
         hook,
         timedOut: false,
@@ -95,7 +99,7 @@ function executeHook(
  * Run all hooks for a given lifecycle point.
  *
  * For preDispatch: runs synchronously, returns blocking result.
- * For postDispatch/onError: runs async, logs errors.
+ * For postDispatch/onError: runs async, logs errors, returns immediately.
  */
 export async function runHooks(
   hooks: HooksConfig | undefined,
@@ -113,16 +117,15 @@ export async function runHooks(
   const matched = hookDefs.filter((h) => matchesEvent(h.event, ctx.event))
   if (matched.length === 0) return empty
 
-  const results: HookResult[] = []
-  let blocked = false
-  let abort = false
-  let reason: string | undefined
+  if (lifecycle === "preDispatch") {
+    // Sync: wait for each result, check blocking
+    const results: HookResult[] = []
+    let blocked = false
+    let abort = false
+    let reason: string | undefined
 
-  for (const hook of matched) {
-    const timeout = hook.timeout ?? DEFAULT_TIMEOUTS[lifecycle]
-
-    if (lifecycle === "preDispatch") {
-      // Sync: wait for result, check blocking
+    for (const hook of matched) {
+      const timeout = hook.timeout ?? DEFAULT_TIMEOUTS[lifecycle]
       const result = await executeHook(hook, ctx, timeout)
       results.push(result)
 
@@ -132,7 +135,7 @@ export async function runHooks(
         blocked = true
         reason = result.stdout || result.stderr || "Hook blocked action"
         console.log(`[hook:${lifecycle}] Action blocked: ${reason}`)
-        break // Don't run further hooks after block
+        break
       } else if (result.exitCode === 2) {
         blocked = true
         abort = true
@@ -140,11 +143,14 @@ export async function runHooks(
         console.error(`[hook:${lifecycle}] Dispatch aborted: ${reason}`)
         break
       }
-      // exit 0 = pass through
-    } else {
-      // Async: fire and forget, but still collect result for logging
+    }
+
+    return { results, blocked, abort, reason }
+  } else {
+    // Async: fire-and-forget, log results
+    for (const hook of matched) {
+      const timeout = hook.timeout ?? DEFAULT_TIMEOUTS[lifecycle]
       executeHook(hook, ctx, timeout).then((result) => {
-        results.push(result)
         if (result.exitCode !== 0 && result.exitCode !== null) {
           console.error(`[hook:${lifecycle}] ${hook.command} failed (exit ${result.exitCode}): ${result.stderr || result.stdout}`)
         } else {
@@ -154,14 +160,7 @@ export async function runHooks(
         // Silently swallow async hook errors
       })
     }
+
+    return { results: [], blocked: false, abort: false }
   }
-
-  return { results, blocked, abort, reason }
-}
-
-/**
- * Load hooks config from the main config object.
- */
-export function getHooksConfig(config: { hooks?: HooksConfig }): HooksConfig {
-  return config.hooks ?? {}
 }
