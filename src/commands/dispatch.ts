@@ -169,7 +169,6 @@ function buildHookContext(
   else if (action.annotate) { event = "annotate"; text = action.annotate.text; targetId = action.annotate.id }
   else if (action.bookmark) { event = "bookmark"; targetId = action.bookmark.id }
   else if (action.highlight) { event = "highlight"; targetId = action.highlight.id }
-  else if (action.ignore) { event = "ignore" }
 
   return {
     event,
@@ -455,7 +454,9 @@ async function dispatchPlatform(
     const preResult = await runHooks(config.hooks, "preDispatch", preCtx)
     if (preResult.abort) {
       console.error(`[${platform}] Dispatch aborted by pre-dispatch hook: ${preResult.reason}`)
-      process.exit(2)
+      results.push({ action: preCtx.event, platform, status: "error", error: `Aborted by hook: ${preResult.reason}` })
+      // Abort remaining actions — archive what we have
+      break
     }
     if (preResult.blocked) {
       console.log(`[${platform}] Action blocked by pre-dispatch hook: ${preResult.reason}`)
