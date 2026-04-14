@@ -43,7 +43,7 @@ X_ACCESS_TOKEN_SECRET=...
 X_BEARER_TOKEN=...                      # optional, for app-only endpoints
 ```
 
-You only need the credentials for the platforms you use. Semble and margin annotations use your Bluesky credentials.
+You only need the credentials for the platforms you use. Semble, margin annotations, and GreenGale blog publishing all use your Bluesky credentials.
 
 ## How it works
 
