@@ -443,6 +443,67 @@ program
     console.log("Profile updated.")
   })
 
+// semble: Knowledge network commands
+const semble = program
+  .command("semble")
+  .description("Semble knowledge network — collections, cards, sources")
+
+semble
+  .command("list")
+  .description("List your Semble collections")
+  .option("-n, --limit <number>", "Max results", "50")
+  .option("--cursor <cursor>", "Pagination cursor")
+  .action(async (opts) => {
+    const { listCollections } = await import("./commands/semble.js")
+    await listCollections({ limit: parseInt(opts.limit), cursor: opts.cursor })
+  })
+
+semble
+  .command("get")
+  .description("Get a collection's details and cards")
+  .argument("<collection>", "Collection rkey or AT-URI")
+  .action(async (collection) => {
+    const { getCollection } = await import("./commands/semble.js")
+    await getCollection(collection)
+  })
+
+semble
+  .command("create")
+  .description("Create a new collection")
+  .argument("<name>", "Collection name")
+  .option("-d, --description <text>", "Collection description")
+  .action(async (name, opts) => {
+    const { createCollection } = await import("./commands/semble.js")
+    await createCollection({ name, description: opts.description })
+  })
+
+semble
+  .command("add-card")
+  .description("Create a card and optionally add to a collection")
+  .argument("<url>", "URL for the card")
+  .option("--note <text>", "Note explaining the card")
+  .option("-c, --collection <rkey>", "Collection rkey to add the card to")
+  .action(async (url, opts) => {
+    const { addCard } = await import("./commands/semble.js")
+    await addCard({ url, note: opts.note, collection: opts.collection })
+  })
+
+semble
+  .command("connect")
+  .description("Create a typed connection between two URLs")
+  .option("--source <url>", "Source URL")
+  .option("--target <url>", "Target URL")
+  .option("--type <type>", "Connection type: SUPPORTS, OPPOSES, RELATED, ADDRESSES, HELPFUL, EXPLAINER, LEADS_TO, SUPPLEMENTS", "RELATED")
+  .option("--note <text>", "Explanation of the connection")
+  .action(async (opts) => {
+    if (!opts.source || !opts.target) {
+      console.error("Error: --source and --target are required")
+      process.exit(1)
+    }
+    const { connect } = await import("./commands/semble.js")
+    await connect({ source: opts.source, target: opts.target, type: opts.type, note: opts.note })
+  })
+
 // blog: Publish long-form content to GreenGale
 program
   .command("blog")
