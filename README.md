@@ -72,6 +72,8 @@ social-cli posts alice.bsky.social -n 10     # → stdout YAML
 social-cli profile alice.bsky.social         # → stdout YAML
 social-cli rate-limits                       # → stdout YAML
 social-cli whoami                            # → stdout YAML (all platforms)
+social-cli semble list                       # → stdout YAML (collections)
+social-cli semble get <rkey>                 # → stdout YAML (collection details)
 social-cli blog --file post.md               # publish to GreenGale
 ```
 
@@ -140,6 +142,46 @@ dispatch:
       id: "notif_003"
       reason: "spam"
 ```
+
+## Semble knowledge network
+
+[Semble](https://semble.so) is a social knowledge network built on ATProto. social-cli provides first-class read and write access to collections, cards, and connections.
+
+### Read
+
+```bash
+social-cli semble list                          # list your collections
+social-cli semble list -n 10                    # limit results
+social-cli semble get <rkey>                    # collection details + cards + connections
+```
+
+### Write
+
+```bash
+# Create a collection
+social-cli semble create "AI Governance 2026" -d "Tracking AI policy developments"
+
+# Add a card (optionally to a collection)
+social-cli semble add-card https://example.com/article --note "Key finding on X" -c <collection-rkey>
+
+# Create a typed connection between two URLs
+social-cli semble connect \
+  --source https://example.com/article \
+  --target https://example.com/thread \
+  --type SUPPORTS \
+  --note "Article supports the thread's main claim"
+```
+
+Connection types: `SUPPORTS`, `OPPOSES`, `RELATED`, `ADDRESSES`, `HELPFUL`, `EXPLAINER`, `LEADS_TO`, `SUPPLEMENTS`.
+
+### How it works
+
+Semble records are ATProto records stored on your PDS:
+- `network.cosmik.collection` — named groups of cards
+- `network.cosmik.card` — URL bookmarks with metadata and notes
+- `network.cosmik.connection` — typed semantic relationships between URLs
+
+All operations use the same Bluesky credentials from your `.env`. Collections are visible at `https://semble.so/profile/{handle}/collections/{rkey}`.
 
 ## Blog publishing
 
