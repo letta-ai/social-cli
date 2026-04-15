@@ -1,17 +1,33 @@
 # social-cli
 
-Agent-optimized social media CLI. Bluesky + X. YAML in, YAML out, exit codes for automation.
+A unified CLI to connect AI agents to the social web. Bluesky, X, Semble, margin annotations, and blog publishing — all through one tool. YAML in, YAML out.
+
+Built for [Letta](https://letta.com) agents, works with anything that can shell out.
 
 ## Install
 
 ```bash
+git clone https://github.com/letta-ai/social-cli.git
+cd social-cli
 pnpm install
 pnpm build
 ```
 
 ## Setup
 
-Create a `.env` in the working directory:
+Create a `config.yaml` in your working directory (or `~/.config/social-cli/config.yaml`):
+
+```yaml
+accounts:
+  bsky:
+    handle: you.bsky.social
+    credentials: .env  # path to .env file with secrets
+  x:
+    handle: you
+    credentials: .env
+```
+
+Create a `.env` with platform credentials:
 
 ```bash
 # Bluesky / ATProto
@@ -27,88 +43,59 @@ X_ACCESS_TOKEN_SECRET=...
 X_BEARER_TOKEN=...                      # optional, for app-only endpoints
 ```
 
-You only need the credentials for the platforms you use.
+You only need the credentials for the platforms you use. Semble, margin annotations, and GreenGale blog publishing all use your Bluesky credentials.
 
-## Commands
+## How it works
+
+social-cli has two modes: an **agent loop** for automated notification handling, and **quick commands** for direct actions.
 
 ### Agent loop
 
-The intended workflow for an automated agent:
-
 ```bash
-social-cli sync                    # pull notifications → inbox.yaml
-social-cli check || exit 0         # anything actionable? no → bail
+social-cli sync -p bsky -p x          # pull notifications → inbox.yaml
+social-cli check || exit 0            # anything actionable? no → bail
 # agent reads inbox.yaml, decides, writes outbox.yaml
-social-cli dispatch                # execute decisions, archive outbox
+social-cli dispatch                    # execute decisions, mark processed
 ```
 
-### Workflow commands
-
-| Command | Description | Exit codes |
-|---------|-------------|------------|
-| `sync` | Fetch notifications → `inbox.yaml`. Dedupes, caps at `--max-items`. | 0 ok, 1 error |
-| `check` | Is inbox actionable? No output, exit code only. | 0 yes, 1 no |
-| `dispatch [file]` | Validate and execute `outbox.yaml`. Archives after. | 0 ok, 1 invalid, 2 partial failure |
+The agent loop handles bookkeeping — marking notifications as processed, deduplicating, archiving outboxes. Agents read `inbox.yaml`, write decisions to `outbox.yaml`, and `dispatch` executes them.
 
 ### Quick commands
 
+For actions that don't come from notifications:
+
 ```bash
 social-cli post "Hello world" -p bsky
-social-cli reply "Thanks" --id at://did:plc:.../app.bsky.feed.post/abc -p bsky
+social-cli post "Hello world" -p x
+social-cli reply "Thanks" --id <post-id> -p bsky
 social-cli thread "Post 1" "Post 2" "Post 3" -p x
-social-cli like at://did:plc:.../app.bsky.feed.post/abc -p bsky
-social-cli delete at://did:plc:.../app.bsky.feed.post/abc -p bsky
+social-cli thread "Post 1" "Post 2" -p bsky -m header.png  # media on first post
+social-cli like <post-id> -p bsky
 social-cli follow alice.bsky.social -p bsky
-social-cli annotate "Interesting point" --target https://example.com --quote "exact text"
+social-cli block spammer.bsky.social -p bsky
+social-cli delete <post-id> -p bsky
 ```
 
-### Read commands
+Quick commands don't touch the inbox pipeline. **If you reply to a notification with `reply` instead of `dispatch`, the notification stays unprocessed and reappears next sync.** This is the most common agent mistake.
+
+## Reading
 
 ```bash
-social-cli search "query" -p bsky -n 10     # → stdout YAML
-social-cli feed -p bsky -n 20               # → feed.yaml (or -o - for stdout)
+social-cli search "query" -p bsky -n 10     # search posts → stdout YAML
+social-cli search "query" -p x -n 10        # works on X too
+social-cli feed -p bsky -n 20               # timeline → feed.yaml (or -o - for stdout)
 social-cli feed --feed "at://did:.../app.bsky.feed.generator/name" -n 10  # custom feed
-social-cli posts alice.bsky.social -n 10     # → stdout YAML
-social-cli profile alice.bsky.social         # → stdout YAML
-social-cli rate-limits                       # → stdout YAML
-social-cli whoami                            # → stdout YAML (all platforms)
-social-cli semble list                       # → stdout YAML (collections)
-social-cli semble get <rkey>                 # → stdout YAML (collection details)
-social-cli blog --file post.md               # publish to GreenGale
+social-cli posts alice.bsky.social -n 10     # user's recent posts → stdout YAML
+social-cli profile alice.bsky.social         # user profile → stdout YAML
+social-cli whoami                            # your account info (all platforms)
+social-cli rate-limits                       # rate limit status
 ```
 
-### Profile management
-
-```bash
-social-cli update-profile --display-name "Name" --bio "About me" -p bsky
-social-cli update-profile --avatar ./photo.png -p bsky
-```
-
-### Embed data
-
-Posts in feed, search, posts, and notification output include an `embed` field when the post has attachments:
-
-```yaml
-embed:
-  type: external          # external | images | record | recordWithMedia
-  uri: https://example.com/article
-  title: Article Title
-  description: Summary text
-```
-
-Quoted posts surface as `record` embeds with `quotedUri`, `quotedText`, and `quotedAuthor`.
-
-## Dispatch vs Quick Commands
-
-**Dispatch** (`sync` → `check` → write outbox → `dispatch`) is the primary workflow. It handles bookkeeping: marking notifications as processed, archiving outboxes, writing results. Use dispatch for anything driven by inbox notifications.
-
-**Quick commands** (`post`, `reply`, `thread`, `like`) bypass the inbox pipeline. They don't mark anything as processed. Use them for original content, source replies on your own threads, and other non-inbox-driven actions.
-
-**If you reply to an inbox notification via the `reply` quick command instead of dispatch, the notification stays in the inbox and reappears next sync.** This is the most common agent mistake.
+All read commands output YAML to stdout (except `feed` which defaults to a file).
 
 ## Outbox format
 
-Agents write decisions as `outbox.yaml`:
+Agents write decisions to `outbox.yaml` for dispatch:
 
 ```yaml
 dispatch:
@@ -127,13 +114,6 @@ dispatch:
         - "Thread post 1"
         - "Thread post 2"
 
-  - annotate:
-      platform: bsky
-      id: "https://example.com/article"
-      text: "Key observation"
-      motivation: commenting
-      quote: "exact text to anchor to"
-
   - like:
       platform: bsky
       id: "at://did:plc:xxx/app.bsky.feed.post/abc"
@@ -141,30 +121,33 @@ dispatch:
   - ignore:
       id: "notif_003"
       reason: "spam"
+
+  - annotate:
+      platform: bsky
+      id: "https://example.com/article"
+      text: "Key observation"
+      motivation: commenting
+      quote: "exact text to anchor to"
 ```
 
-## Semble knowledge network
+## Platforms
 
-[Semble](https://semble.so) is a social knowledge network built on ATProto. social-cli provides first-class read and write access to collections, cards, and connections.
+### Bluesky + X
 
-### Read
+The core social platforms. Post, reply, thread, like, follow, search, and read feeds. Character limits: 300 (Bluesky), 280 (X). Media attachments supported on both via `-m`.
+
+### Semble
+
+[Semble](https://semble.so) is a social knowledge network built on ATProto. Build collections of sources, annotate them with notes, and create typed connections between URLs.
 
 ```bash
+# Read
 social-cli semble list                          # list your collections
-social-cli semble list -n 10                    # limit results
 social-cli semble get <rkey>                    # collection details + cards + connections
-```
 
-### Write
-
-```bash
-# Create a collection
-social-cli semble create "AI Governance 2026" -d "Tracking AI policy developments"
-
-# Add a card (optionally to a collection)
-social-cli semble add-card https://example.com/article --note "Key finding on X" -c <collection-rkey>
-
-# Create a typed connection between two URLs
+# Write
+social-cli semble create "Collection Name" -d "Description"
+social-cli semble add-card https://example.com --note "What this source shows" -c <rkey>
 social-cli semble connect \
   --source https://example.com/article \
   --target https://example.com/thread \
@@ -174,72 +157,61 @@ social-cli semble connect \
 
 Connection types: `SUPPORTS`, `OPPOSES`, `RELATED`, `ADDRESSES`, `HELPFUL`, `EXPLAINER`, `LEADS_TO`, `SUPPLEMENTS`.
 
-### How it works
+Semble records are ATProto records on your PDS (`network.cosmik.collection`, `network.cosmik.card`, `network.cosmik.connection`). Uses the same Bluesky credentials. Collections visible at `semble.so/profile/{handle}/collections/{rkey}`.
 
-Semble records are ATProto records stored on your PDS:
-- `network.cosmik.collection` — named groups of cards
-- `network.cosmik.card` — URL bookmarks with metadata and notes
-- `network.cosmik.connection` — typed semantic relationships between URLs
+### Margin annotations
 
-All operations use the same Bluesky credentials from your `.env`. Collections are visible at `https://semble.so/profile/{handle}/collections/{rkey}`.
-
-## Blog publishing
-
-Publish long-form content to GreenGale (`app.greengale.document`):
+Annotations use the `at.margin.note` lexicon (W3C Web Annotation model). They work on any URL, not just ATProto posts. Visible in [margin.at](https://margin.at) and Semble.
 
 ```bash
-# From file (supports frontmatter)
+social-cli annotate "Note about this" --target https://example.com
+social-cli bookmark --target https://example.com
+social-cli highlight --target https://example.com --quote "exact passage"
+```
+
+### Blog publishing
+
+Publish long-form content to [GreenGale](https://greengale.app) (`app.greengale.document`):
+
+```bash
 social-cli blog --file my-post.md
-
-# With options
-social-cli blog --file my-post.md --title "Custom Title" --slug "custom-slug"
-
-# Inline content
+social-cli blog --file my-post.md --title "Title" --slug "url-slug"
 social-cli blog --title "Quick Note" --content "Markdown content here"
 ```
 
-Options:
-- `--file` — Path to markdown file
-- `--title` — Override title (or use frontmatter `title:`)
-- `--slug` — Override slug (defaults to filename without date prefix)
-- `--subtitle` — Optional subtitle
+Supports frontmatter (`title`, `slug`, `subtitle`). Published at `greengale.app/{handle}/{slug}`.
 
-Frontmatter is stripped automatically:
+## Embed data
 
-```markdown
----
-title: My Post
-slug: my-post
----
-# Actual content starts here
+Posts in feed, search, posts, and notification output include `embed` when the post has attachments:
+
+```yaml
+embed:
+  type: external          # external | images | record | recordWithMedia
+  uri: https://example.com/article
+  title: Article Title
+  description: Summary text
 ```
 
-Published posts appear at: `https://greengale.app/{handle}/{slug}`
+Quoted posts surface as `record` embeds with `quotedUri`, `quotedText`, and `quotedAuthor`.
 
-## Annotations
-
-Bluesky annotations use the `at.margin.note` lexicon (W3C Web Annotation model, unified format). They work on any URL, not just ATProto posts. Annotations appear in [margin.at](https://margin.at) and Semble.
+## Profile management
 
 ```bash
-# Annotate a web page
-social-cli annotate "Note about this article" --target https://example.com
-
-# Annotate with a text anchor (highlight)
-social-cli annotate "This is the key insight" \
-  --target https://example.com/article \
-  --quote "exact passage from the page" \
-  --motivation highlighting
+social-cli update-profile --display-name "Name" --bio "About me" -p bsky
+social-cli update-profile --avatar ./photo.png -p bsky
 ```
 
 ## Resilience
 
-- **Retry with backoff**: All API calls retry 3x on network errors, 429s, and 5xx. Respects `Retry-After`.
-- **Session refresh**: Bluesky re-authenticates on token expiry. No manual intervention.
+- **Retry with backoff**: All API calls retry 3x on network errors, 429s, and 5xx. Respects `Retry-After` headers and rate limit reset timestamps per platform.
+- **Session refresh**: Bluesky re-authenticates on token expiry automatically.
 - **Atomic writes**: All YAML output uses tmp+rename. No half-written files on crash.
-- **Char validation**: Quick commands reject oversized text before hitting the API (300 bsky, 280 x).
-- **Inbox cap**: `--max-items` (default 200) truncates oldest entries.
+- **Char validation**: Quick commands reject oversized text before hitting the API.
+- **Inbox cap**: `--max-items` (default 200) truncates oldest entries to prevent unbounded growth.
 - **Thread resume**: If a thread fails mid-chain, `dispatch_result.yaml` includes `resumeFrom` with the index and remaining posts.
-- **Continue-on-failure**: Dispatch processes all actions even if some fail. Exit 2 on partial.
+- **Continue-on-failure**: Dispatch processes all actions even if some fail. Exit code 2 on partial failure.
+- **Replay detection**: Dispatch prevents posting the same reply twice to the same target.
 
 ## License
 
