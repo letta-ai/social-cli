@@ -125,6 +125,9 @@ program
     if (opts.replyTo) {
       const result = await platform.reply(opts.replyTo, text, { quoteId: opts.quote, media: opts.media })
       console.log(`Posted (reply): ${result.id}`)
+      const { pruneInboxByPostId } = await import("./lib/state.js")
+      const pruned = pruneInboxByPostId(opts.platform, [opts.replyTo])
+      if (pruned.length > 0) console.log(`Pruned ${pruned.length} inbox notification(s) matching reply target`)
     } else {
       const result = await platform.post(text, { quoteId: opts.quote, media: opts.media })
       console.log(`Posted: ${result.id}`)
@@ -146,6 +149,9 @@ program
     const platform = await getPlatformAsync(opts.platform)
     const result = await platform.reply(opts.id, text, { media: opts.media })
     console.log(`Replied: ${result.id}`)
+    const { pruneInboxByPostId } = await import("./lib/state.js")
+    const pruned = pruneInboxByPostId(opts.platform, [opts.id])
+    if (pruned.length > 0) console.log(`Pruned ${pruned.length} inbox notification(s) matching reply target`)
   })
 
 // thread: Post a thread

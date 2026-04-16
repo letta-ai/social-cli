@@ -231,6 +231,57 @@ export function readSharedFile<T = any>(
 }
 
 /**
+ * Remove notifications from a platform's inbox by matching post IDs.
+ *
+ * Matches on both `id` and `postId` fields of each notification (mirrors how
+ * dispatch prunes the inbox). Used by ad-hoc commands like `reply` that bypass
+ * the dispatch pipeline but still respond to inbox items, so the inbox doesn't
+ * keep showing those notifications as pending.
+ *
+ * Best-effort: silently returns [] if the inbox file is missing, malformed,
+ * or cannot be written. Never throws.
+ *
+ * @returns the list of notification ids that were removed
+ */
+export function pruneInboxByPostId(
+  platform: string,
+  postIds: string[],
+  stateDir?: string
+): string[] {
+  if (postIds.length === 0) return []
+
+  const path = getPlatformFilePath("inbox", platform, stateDir)
+  if (!existsSync(path)) return []
+
+  try {
+    const inbox = parse(readFileSync(path, "utf-8")) as {
+      notifications?: Array<{ id: string; postId?: string }>
+      _sync?: Record<string, unknown>
+    }
+    if (!inbox?.notifications?.length) return []
+
+    const matchSet = new Set(postIds)
+    const before = inbox.notifications
+    const removed = before.filter(
+      (n) => matchSet.has(n.id) || matchSet.has(n.postId ?? ""),
+    )
+    if (removed.length === 0) return []
+
+    const remaining = before.filter(
+      (n) => !matchSet.has(n.id) && !matchSet.has(n.postId ?? ""),
+    )
+    inbox.notifications = remaining
+    if (inbox._sync) {
+      inbox._sync = { ...inbox._sync, totalCount: remaining.length }
+    }
+    writeFileAtomic(path, stringify(inbox, { lineWidth: 120 }))
+    return removed.map((n) => n.id)
+  } catch {
+    return []
+  }
+}
+
+/**
  * Archive a platform-specific outbox file after dispatch.
  */
 export function archivePlatformOutbox(
