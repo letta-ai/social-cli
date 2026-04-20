@@ -671,7 +671,6 @@ export const bluesky: SocialPlatform = {
       await agent.com.atproto.repo.createRecord({
         repo: did,
         collection: "app.bsky.graph.block",
-        rkey: res.data.did,
         record: {
           $type: "app.bsky.graph.block",
           subject: res.data.did,
