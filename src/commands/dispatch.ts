@@ -21,6 +21,8 @@ import type { PostOpts } from "../platforms/types.js"
 import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
 import { writeFileAtomic } from "../util/fs.js"
+import { runHooks } from "../hooks.js"
+import type { HookContext, HooksConfig } from "../types/hooks.js"
 import {
   getPlatformFilePath,
   getSharedFilePath,
@@ -144,6 +146,73 @@ function buildProvenanceInfo(opts: {
     dryRun: opts.dryRun,
     platform: opts.platform,
   }
+}
+
+/**
+ * Build hook context from an outbox action and optional result.
+ */
+function buildHookContext(
+  action: OutboxAction,
+  platform: string,
+  outboxPath: string,
+  opts?: {
+    actionId?: string
+    result?: "success" | "error"
+    error?: string
+    text?: string
+    targetId?: string
+    platform?: string
+  },
+): HookContext {
+  let event = "post"
+  let text = opts?.text ?? ""
+  let targetId = opts?.targetId
+  const hookPlatform = opts?.platform ?? platform
+
+  if (action.reply) { event = "reply"; text = opts?.text ?? action.reply.text; targetId ??= action.reply.id }
+  else if (action.thread) { event = "thread"; text = opts?.text ?? action.thread.posts.join("\n"); targetId ??= action.thread.replyTo }
+  else if (action.post) { event = "post"; text = opts?.text ?? action.post.text ?? ""; targetId ??= action.post.replyTo }
+  else if (action.follow) { event = "follow" }
+  else if (action.like) { event = "like"; targetId ??= action.like.id }
+  else if (action.annotate) { event = "annotate"; text = opts?.text ?? action.annotate.text; targetId ??= action.annotate.id }
+  else if (action.bookmark) { event = "bookmark"; targetId ??= action.bookmark.id }
+  else if (action.highlight) { event = "highlight"; targetId ??= action.highlight.id }
+
+  return {
+    event,
+    platform: hookPlatform,
+    actionId: opts?.actionId,
+    targetId,
+    text,
+    outboxPath,
+    result: opts?.result ?? "success",
+    error: opts?.error,
+  }
+}
+
+function triggerAsyncHook(
+  hooks: HooksConfig | undefined,
+  lifecycle: "postDispatch" | "onError",
+  action: OutboxAction,
+  platform: string,
+  outboxPath: string,
+  opts?: {
+    actionId?: string
+    error?: string
+    text?: string
+    targetId?: string
+  },
+): void {
+  const ctx = buildHookContext(action, platform, outboxPath, {
+    actionId: opts?.actionId,
+    result: lifecycle === "postDispatch" ? "success" : "error",
+    error: opts?.error,
+    text: opts?.text,
+    targetId: opts?.targetId,
+    platform,
+  })
+
+  void runHooks(hooks, lifecycle, ctx)
 }
 
 /**
@@ -413,6 +482,21 @@ async function dispatchPlatform(
       continue
     }
 
+    // Pre-dispatch hooks: synchronous, blocking
+    const preCtx = buildHookContext(action, platform, outboxPath)
+    const preResult = await runHooks(config.hooks, "preDispatch", preCtx)
+    if (preResult.abort) {
+      console.error(`[${platform}] Dispatch aborted by pre-dispatch hook: ${preResult.reason}`)
+      results.push({ action: preCtx.event, platform, status: "error", error: `Aborted by hook: ${preResult.reason}` })
+      // Abort remaining actions — archive what we have
+      break
+    }
+    if (preResult.blocked) {
+      console.log(`[${platform}] Action blocked by pre-dispatch hook: ${preResult.reason}`)
+      results.push({ action: preCtx.event, platform, status: "error", error: `Blocked by hook: ${preResult.reason}` })
+      continue
+    }
+
     if (action.reply) {
       const r = action.reply
       try {
@@ -450,10 +534,20 @@ async function dispatchPlatform(
           if (n.postId) processedNotifIds.push(n.postId)
         }
         console.log(`[${platform}] Replied on ${r.platform}: ${res.id}`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, r.platform, outboxPath, {
+          actionId: res.id,
+          text: r.text,
+          targetId: r.id,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "reply", platform: r.platform, status: "error", targetId: r.id, error: msg })
         console.error(`[${platform}] Reply failed on ${r.platform}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, r.platform, outboxPath, {
+          error: msg,
+          text: r.text,
+          targetId: r.id,
+        })
       }
     }
 
@@ -510,16 +604,27 @@ async function dispatchPlatform(
             dryRun: provenance.dryRun,
           })
           console.log(`[${platform}] Posted on ${t.platform}: ${res.id}`)
+          triggerAsyncHook(config.hooks, "postDispatch", action, t.platform, outboxPath, {
+            actionId: res.id,
+            text: t.text,
+            targetId: p.replyTo,
+          })
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           results.push({ action: "post", platform: t.platform, status: "error", error: msg })
           console.error(`[${platform}] Post failed on ${t.platform}: ${msg}`)
+          triggerAsyncHook(config.hooks, "onError", action, t.platform, outboxPath, {
+            error: msg,
+            text: t.text,
+            targetId: p.replyTo,
+          })
         }
       }
     }
 
     if (action.thread) {
       const t = action.thread
+      const threadResultStart = results.length
       try {
         // Resolve media: explicit paths + auto-generated card
         let mediaPaths: string[] = t.media ?? []
@@ -565,15 +670,18 @@ async function dispatchPlatform(
           dryRun: provenance.dryRun,
         })
         console.log(`[${platform}] Thread posted on ${t.platform}: ${res.length} posts`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, t.platform, outboxPath, {
+          actionId: res[0]?.id,
+          text: t.posts.join("\n"),
+          targetId: t.replyTo,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        // Find how many posts succeeded before failure
-        const okCount = results.filter(
-          (r) => r.action === "thread" && r.platform === t.platform && r.status === "ok",
-        ).length
-        const lastOk = okCount > 0 ? results.filter(
-          (r) => r.action === "thread" && r.platform === t.platform && r.status === "ok",
-        ).pop() : undefined
+        const currentThreadResults = results
+          .slice(threadResultStart)
+          .filter((r) => r.action === "thread" && r.platform === t.platform && r.status === "ok")
+        const okCount = currentThreadResults.length
+        const lastOk = okCount > 0 ? currentThreadResults.at(-1) : undefined
         results.push({
           action: "thread",
           platform: t.platform,
@@ -586,6 +694,11 @@ async function dispatchPlatform(
           } : undefined,
         } as any)
         console.error(`[${platform}] Thread failed on ${t.platform} at post ${okCount + 1}/${t.posts.length}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, t.platform, outboxPath, {
+          error: msg,
+          text: t.posts.join("\n"),
+          targetId: t.replyTo,
+        })
       }
     }
 
@@ -600,10 +713,16 @@ async function dispatchPlatform(
         await plat.follow(cleanHandle)
         results.push({ action: "follow", platform: f.platform, status: "ok", id: cleanHandle })
         console.log(`[${platform}] Followed on ${f.platform}: ${cleanHandle}`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, f.platform, outboxPath, {
+          actionId: cleanHandle,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "follow", platform: f.platform, status: "error", error: msg })
         console.error(`[${platform}] Follow failed on ${f.platform}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, f.platform, outboxPath, {
+          error: msg,
+        })
       }
     }
 
@@ -617,10 +736,17 @@ async function dispatchPlatform(
         await plat.like(l.id)
         results.push({ action: "like", platform: l.platform, status: "ok", targetId: l.id })
         console.log(`[${platform}] Liked on ${l.platform}: ${l.id}`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, l.platform, outboxPath, {
+          targetId: l.id,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "like", platform: l.platform, status: "error", targetId: l.id, error: msg })
         console.error(`[${platform}] Like failed on ${l.platform}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, l.platform, outboxPath, {
+          error: msg,
+          targetId: l.id,
+        })
       }
     }
 
@@ -634,10 +760,20 @@ async function dispatchPlatform(
         const res = await plat.annotate(a.id, a.text, { motivation: a.motivation })
         results.push({ action: "annotate", platform: a.platform, status: "ok", id: res.id })
         console.log(`[${platform}] Annotated on ${a.platform}: ${res.id}`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, a.platform, outboxPath, {
+          actionId: res.id,
+          text: a.text,
+          targetId: a.id,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "annotate", platform: a.platform, status: "error", error: msg })
         console.error(`[${platform}] Annotate failed on ${a.platform}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, a.platform, outboxPath, {
+          error: msg,
+          text: a.text,
+          targetId: a.id,
+        })
       }
     }
 
@@ -651,10 +787,20 @@ async function dispatchPlatform(
         const res = await plat.annotate(b.id, b.text ?? "", { motivation: "bookmarking" })
         results.push({ action: "bookmark", platform: b.platform, status: "ok", id: res.id })
         console.log(`[${platform}] Bookmarked on ${b.platform}: ${res.id}`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, b.platform, outboxPath, {
+          actionId: res.id,
+          text: b.text,
+          targetId: b.id,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "bookmark", platform: b.platform, status: "error", error: msg })
         console.error(`[${platform}] Bookmark failed on ${b.platform}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, b.platform, outboxPath, {
+          error: msg,
+          text: b.text,
+          targetId: b.id,
+        })
       }
     }
 
@@ -668,10 +814,20 @@ async function dispatchPlatform(
         const res = await plat.annotate(h.id, h.text ?? "", { motivation: "highlighting", quote: h.quote })
         results.push({ action: "highlight", platform: h.platform, status: "ok", id: res.id })
         console.log(`[${platform}] Highlighted on ${h.platform}: ${res.id}`)
+        triggerAsyncHook(config.hooks, "postDispatch", action, h.platform, outboxPath, {
+          actionId: res.id,
+          text: h.text,
+          targetId: h.id,
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         results.push({ action: "highlight", platform: h.platform, status: "error", error: msg })
         console.error(`[${platform}] Highlight failed on ${h.platform}: ${msg}`)
+        triggerAsyncHook(config.hooks, "onError", action, h.platform, outboxPath, {
+          error: msg,
+          text: h.text,
+          targetId: h.id,
+        })
       }
     }
   }
