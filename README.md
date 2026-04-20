@@ -59,6 +59,8 @@ For Leaflet publishing, either pass `--publication <at-uri>` on each publish or 
 LEAFLET_PUBLICATION_URI=at://did:plc:.../site.standard.publication/...
 ```
 
+Optional dispatch hooks are also configured in `config.yaml`; see [Dispatch hooks](#dispatch-hooks).
+
 ## How it works
 
 social-cli has two modes: an **agent loop** for automated notification handling, and **quick commands** for direct actions.
@@ -143,6 +145,56 @@ dispatch:
       motivation: commenting
       quote: "exact text to anchor to"
 ```
+
+## Dispatch hooks
+
+Hooks let you run scripts before or after `dispatch` actions. They are configured in `config.yaml` and currently apply to the **dispatch pipeline** — not quick commands like `post` or `reply`.
+
+```yaml
+hooks:
+  preDispatch:
+    - event: reply
+      command: "bash hooks/example-validate-reply.sh"
+
+  postDispatch:
+    - event: thread
+      command: "bash hooks/example-log-dispatch.sh"
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+
+  onError:
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+```
+
+### Lifecycles
+
+- `preDispatch` — synchronous, blocking. Runs once per action before dispatch.
+  - exit `0`: allow action
+  - exit `1`: skip action
+  - exit `2`: abort remaining dispatch work
+- `postDispatch` — async, fire-and-forget. Runs after a successful action.
+- `onError` — async, fire-and-forget. Runs after a failed action.
+
+Hooks match the action `event` (`reply`, `post`, `thread`, `follow`, `like`, `annotate`, `bookmark`, `highlight`) or wildcard `"*"`.
+
+### Environment variables
+
+Each hook receives context through environment variables:
+
+- `SOCIAL_HOOK_EVENT`
+- `SOCIAL_HOOK_PLATFORM`
+- `SOCIAL_HOOK_ACTION_ID`
+- `SOCIAL_HOOK_TARGET_ID`
+- `SOCIAL_HOOK_TEXT`
+- `SOCIAL_HOOK_OUTBOX_PATH`
+- `SOCIAL_HOOK_RESULT`
+- `SOCIAL_HOOK_ERROR` (only on failures)
+
+The repo includes example scripts in `hooks/`:
+
+- `hooks/example-validate-reply.sh`
+- `hooks/example-log-dispatch.sh`
 
 ## Platforms
 
