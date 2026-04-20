@@ -29,6 +29,8 @@ X_BEARER_TOKEN=...                      # optional, for app-only endpoints
 
 You only need the credentials for the platforms you use.
 
+Optional configuration lives in `config.yaml` in the working directory (or `~/.config/social-cli/config.yaml`). This is where dispatch hooks are configured.
+
 ## Commands
 
 ### Agent loop
@@ -140,6 +142,56 @@ dispatch:
       id: "notif_003"
       reason: "spam"
 ```
+
+## Dispatch hooks
+
+Hooks let you run scripts before or after `dispatch` actions. They are configured in `config.yaml` and currently apply to the **dispatch pipeline** — not quick commands like `post` or `reply`.
+
+```yaml
+hooks:
+  preDispatch:
+    - event: reply
+      command: "bash hooks/example-validate-reply.sh"
+
+  postDispatch:
+    - event: thread
+      command: "bash hooks/example-log-dispatch.sh"
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+
+  onError:
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+```
+
+### Lifecycles
+
+- `preDispatch` — synchronous, blocking. Runs once per action before dispatch.
+  - exit `0`: allow action
+  - exit `1`: skip action
+  - exit `2`: abort remaining dispatch work
+- `postDispatch` — async, fire-and-forget. Runs after a successful action.
+- `onError` — async, fire-and-forget. Runs after a failed action.
+
+Hooks match the action `event` (`reply`, `post`, `thread`, `follow`, `like`, `annotate`, `bookmark`, `highlight`) or wildcard `"*"`.
+
+### Environment variables
+
+Each hook receives context through environment variables:
+
+- `SOCIAL_HOOK_EVENT`
+- `SOCIAL_HOOK_PLATFORM`
+- `SOCIAL_HOOK_ACTION_ID`
+- `SOCIAL_HOOK_TARGET_ID`
+- `SOCIAL_HOOK_TEXT`
+- `SOCIAL_HOOK_OUTBOX_PATH`
+- `SOCIAL_HOOK_RESULT`
+- `SOCIAL_HOOK_ERROR` (only on failures)
+
+The repo includes example scripts in `hooks/`:
+
+- `hooks/example-validate-reply.sh`
+- `hooks/example-log-dispatch.sh`
 
 ## Blog publishing
 
