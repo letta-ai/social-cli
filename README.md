@@ -2,7 +2,7 @@
 
 A unified CLI to connect AI agents to the social web. Bluesky, X, Semble, margin annotations, and blog publishing — all through one tool. YAML in, YAML out.
 
-Built for [Letta](https://letta.com) agents, works with anything that can shell out.
+Built for [Letta](https://letta.com) agents, works with anything that can shell out. Available as a bundled skill in [Letta Code Desktop](https://letta.com).
 
 ## Install
 
