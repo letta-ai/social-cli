@@ -30,8 +30,8 @@ export interface AnnotateOpts {
 }
 
 export interface NotificationMediaVariant {
-  contentType: string
-  url: string
+  contentType?: string
+  url?: string
   bitRate?: number
 }
 

@@ -15,8 +15,8 @@ import { loadConfig } from "../config.js"
 import type { Notification } from "../platforms/types.js"
 import { writeFileAtomic } from "../util/fs.js"
 import {
-  attachmentPath,
-  downloadMedia,
+  attachmentStem,
+  downloadToFileWithExt,
   ensureDir,
   pickMediaUrl,
 } from "../util/media.js"
@@ -161,19 +161,18 @@ async function fetchAttachments(
 
         const fallbackExt =
           m.type === "video" || m.type === "animated_gif" ? ".mp4" : ".jpg"
-        const outPath = attachmentPath({
+        const stem = attachmentStem({
           attachmentsDir,
           platform: platformName,
+          authorId: notif.authorId,
           postId: notif.postId,
           suffix: m.mediaKey,
-          url: pick.url,
-          fallbackExt,
         })
 
         try {
           ensure()
-          await downloadMedia(pick.url, outPath)
-          m.localPath = relPath(outPath)
+          const finalPath = await downloadToFileWithExt(pick.url, stem, fallbackExt)
+          m.localPath = relPath(finalPath)
           fetched++
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
@@ -188,19 +187,18 @@ async function fetchAttachments(
         const img = notif.embed.images[idx]
         if (img.localPath || !img.url) continue
 
-        const outPath = attachmentPath({
+        const stem = attachmentStem({
           attachmentsDir,
           platform: platformName,
+          authorId: notif.authorId,
           postId: notif.postId,
           suffix: String(idx),
-          url: img.url,
-          fallbackExt: ".jpg",
         })
 
         try {
           ensure()
-          await downloadMedia(img.url, outPath)
-          img.localPath = relPath(outPath)
+          const finalPath = await downloadToFileWithExt(img.url, stem, ".jpg")
+          img.localPath = relPath(finalPath)
           fetched++
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
