@@ -195,6 +195,32 @@ embed:
 
 Quoted posts surface as `record` embeds with `quotedUri`, `quotedText`, and `quotedAuthor`.
 
+### Attachments
+
+Notification embeds and X media include remote URLs but aren't downloaded by default. Pass `--media` to `sync` and attached images/videos are saved under `attachments/{platform}/` and annotated with a `localPath` field so agents can read them directly:
+
+```bash
+social-cli sync -p bsky -p x --media
+```
+
+```yaml
+embed:
+  type: images
+  images:
+    - alt: "..."
+      url: https://cdn.bsky.app/img/feed_fullsize/plain/...
+      localPath: attachments/bsky/3kxyz_0.jpg
+media:
+  - mediaKey: 3_2045193021470420992
+    type: photo
+    url: https://pbs.twimg.com/media/HGH8N5XaMAA-Eba.jpg
+    localPath: attachments/x/2045193025136308393_3_2045193021470420992.jpg
+```
+
+Scope is notifications only — feed, search, and profile lookups keep the remote URLs but skip the download. Fetch those on demand with `curl` (Bluesky) or `tsx scripts/fetch-tweet-media.ts <tweet-id> <out-dir>` (X). The `attachments/` directory is gitignored.
+
+Files are named `<author-prefix>_<post-id>_<suffix>.<ext>`, where the author prefix (last 8 alphanumerics of the DID or numeric ID) prevents collisions between different authors who happen to share a post rkey. Extensions come from the response `Content-Type` header, so Bluesky CDN images correctly land as `.webp`. `localPath` entries are relative to the directory sync was run from.
+
 ## Profile management
 
 ```bash

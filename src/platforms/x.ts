@@ -20,6 +20,7 @@ import type {
 } from "./types.js"
 import { loadConfig, loadCredentials } from "../config.js"
 import { withRetry } from "../util/retry.js"
+import { normalizeXMediaV2 } from "../util/media.js"
 
 let _client: TwitterApi | null = null
 
@@ -299,20 +300,7 @@ export const x: SocialPlatform = {
     const mediaByKey = new Map<string, NotificationMedia>()
     if (mentions.includes?.media) {
       for (const media of mentions.includes.media) {
-        mediaByKey.set(media.media_key, {
-          mediaKey: media.media_key,
-          type: media.type,
-          url: media.url,
-          previewImageUrl: media.preview_image_url,
-          altText: media.alt_text,
-          width: media.width,
-          height: media.height,
-          variants: media.variants?.map((variant) => ({
-            contentType: variant.content_type,
-            url: variant.url,
-            bitRate: variant.bit_rate,
-          })),
-        })
+        mediaByKey.set(media.media_key, normalizeXMediaV2(media))
       }
     }
 

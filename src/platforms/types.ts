@@ -30,8 +30,8 @@ export interface AnnotateOpts {
 }
 
 export interface NotificationMediaVariant {
-  contentType: string
-  url: string
+  contentType?: string
+  url?: string
   bitRate?: number
 }
 
@@ -44,6 +44,8 @@ export interface NotificationMedia {
   width?: number
   height?: number
   variants?: NotificationMediaVariant[]
+  /** Filesystem path of a locally downloaded copy (set by `sync --media`). */
+  localPath?: string
 }
 
 export interface Notification {
@@ -72,7 +74,7 @@ export interface EmbedInfo {
   /** External link description. */
   description?: string
   /** Attached images. */
-  images?: { alt: string; url?: string }[]
+  images?: { alt: string; url?: string; localPath?: string }[]
   /** Quoted post AT-URI. */
   quotedUri?: string
   /** Quoted post text (truncated). */

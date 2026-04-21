@@ -33,6 +33,8 @@ program
   .option("--auto-create-users", "Create missing user memory files during sync")
   .option("--reset", "Clear cursors and re-fetch all notifications from scratch")
   .option("--clear", "Clear both cursors and the local inbox for a fully fresh start")
+  .option("--media", "Download attached images/videos from notifications to attachments/{platform}/")
+  .option("--attachments-dir <path>", "Override attachments root directory (default: ./attachments)")
   .action(async (opts) => {
     const [{ sync }, { loadConfig }] = await Promise.all([
       import("./commands/sync.js"),
@@ -49,6 +51,8 @@ program
       autoCreateUsers: opts.autoCreateUsers || config.sync?.autoCreateUsers,
       reset: opts.reset,
       clear: opts.clear,
+      media: opts.media,
+      attachmentsDir: opts.attachmentsDir,
     })
   })
 

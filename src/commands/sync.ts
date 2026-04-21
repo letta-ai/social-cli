@@ -8,12 +8,18 @@
  */
 
 import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from "node:fs"
-import { resolve, join } from "node:path"
+import { resolve, join, relative } from "node:path"
 import { stringify, parse } from "yaml"
 import { getPlatformAsync, availablePlatforms } from "../platforms/index.js"
 import { loadConfig } from "../config.js"
 import type { Notification } from "../platforms/types.js"
 import { writeFileAtomic } from "../util/fs.js"
+import {
+  attachmentStem,
+  downloadToFileWithExt,
+  ensureDir,
+  pickMediaUrl,
+} from "../util/media.js"
 import {
   getPlatformFilePath,
   getSharedFilePath,
@@ -38,6 +44,8 @@ interface InboxFile {
     dropped?: number
     /** Per-platform cursor for incremental sync. */
     cursor?: string
+    /** Count of media files downloaded during this sync (when --media). */
+    attachmentsFetched?: number
   }
 }
 
@@ -121,6 +129,88 @@ function autoCreateUserFile(handle: string, platform: string, usersDir: string, 
   return filePath
 }
 
+/**
+ * Download attached media for a set of notifications into attachmentsDir.
+ * Mutates notifications in place, setting localPath on each media/embed entry.
+ * Returns the count of successfully downloaded files.
+ */
+async function fetchAttachments(
+  notifications: Notification[],
+  platformName: string,
+  attachmentsDir: string,
+): Promise<number> {
+  let fetched = 0
+  let dirEnsured = false
+
+  const ensure = () => {
+    if (!dirEnsured) {
+      ensureDir(join(attachmentsDir, platformName))
+      dirEnsured = true
+    }
+  }
+
+  const relPath = (abs: string) => relative(process.cwd(), abs)
+
+  for (const notif of notifications) {
+    // X media
+    if (notif.media && notif.media.length > 0) {
+      for (const m of notif.media) {
+        if (m.localPath) continue
+        const pick = pickMediaUrl(m)
+        if (!pick) continue
+
+        const fallbackExt =
+          m.type === "video" || m.type === "animated_gif" ? ".mp4" : ".jpg"
+        const stem = attachmentStem({
+          attachmentsDir,
+          platform: platformName,
+          authorId: notif.authorId,
+          postId: notif.postId,
+          suffix: m.mediaKey,
+        })
+
+        try {
+          ensure()
+          const finalPath = await downloadToFileWithExt(pick.url, stem, fallbackExt)
+          m.localPath = relPath(finalPath)
+          fetched++
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[${platformName}] media fetch failed for ${notif.postId} (${m.mediaKey}): ${msg}`)
+        }
+      }
+    }
+
+    // Bluesky embed images (includes recordWithMedia which populates the same field)
+    if (notif.embed?.images && notif.embed.images.length > 0) {
+      for (let idx = 0; idx < notif.embed.images.length; idx++) {
+        const img = notif.embed.images[idx]
+        if (img.localPath || !img.url) continue
+
+        const stem = attachmentStem({
+          attachmentsDir,
+          platform: platformName,
+          authorId: notif.authorId,
+          postId: notif.postId,
+          suffix: String(idx),
+        })
+
+        try {
+          ensure()
+          const finalPath = await downloadToFileWithExt(img.url, stem, ".jpg")
+          img.localPath = relPath(finalPath)
+          fetched++
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          console.error(`[${platformName}] media fetch failed for ${notif.postId} (image ${idx}): ${msg}`)
+        }
+      }
+    }
+  }
+
+  return fetched
+}
+
 /** Exact lookup by a single key against platform-specific then flat dirs. */
 function exactLookup(
   key: string,
@@ -174,6 +264,10 @@ export async function sync(opts: {
   reset?: boolean
   /** Clear both cursors and the local inbox for a fully fresh start. */
   clear?: boolean
+  /** Download attached images/videos from notifications into attachments/{platform}/. */
+  media?: boolean
+  /** Override attachments root directory (default: ./attachments). */
+  attachmentsDir?: string
 }): Promise<void> {
   // Load config for allowedPlatforms and platform isolation
   const config = loadConfig()
@@ -292,6 +386,15 @@ export async function sync(opts: {
     totalPendingCount += capped.length
     totalNewCount += newCount
 
+    // Fetch media attachments if requested
+    let attachmentsFetched = 0
+    if (opts.media) {
+      const attachmentsDir = opts.attachmentsDir
+        ? resolve(process.cwd(), opts.attachmentsDir)
+        : resolve(process.cwd(), "attachments")
+      attachmentsFetched = await fetchAttachments(capped, platformName, attachmentsDir)
+    }
+
     // Enrich with user context if --users-dir provided
     let usersMatched = 0
     let usersCreated = 0
@@ -338,6 +441,7 @@ export async function sync(opts: {
         cursor,
         ...(dropped > 0 ? { dropped } : {}),
         ...(opts.usersDir ? { usersDir: opts.usersDir, usersMatched, ...(usersCreated > 0 ? { usersCreated } : {}) } : {}),
+        ...(attachmentsFetched > 0 ? { attachmentsFetched } : {}),
       },
     }
 
@@ -350,6 +454,7 @@ export async function sync(opts: {
       if (usersCreated > 0) msg += `, ${usersCreated} created`
       msg += `)`
     }
+    if (attachmentsFetched > 0) msg += ` (${attachmentsFetched} attachment${attachmentsFetched === 1 ? "" : "s"})`
     console.log(msg)
   }
 
