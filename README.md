@@ -202,6 +202,15 @@ social-cli update-profile --display-name "Name" --bio "About me" -p bsky
 social-cli update-profile --avatar ./photo.png -p bsky
 ```
 
+## Skills
+
+Bundled agent-facing guidance and workflows under `skills/`:
+
+- [`skills/social-conduct/SKILL.md`](skills/social-conduct/SKILL.md) — hard rules, norms, and platform specifics for operating on Bluesky and X. Load before any posting, replying, following, liking, or DM behavior.
+- [`skills/blog/SKILL.md`](skills/blog/SKILL.md) — publish long-form markdown to GreenGale.
+- [`skills/semble-sources/SKILL.md`](skills/semble-sources/SKILL.md) — create public source-tracking collections on Semble linking threads to their sources.
+- [`skills/thread-cards/SKILL.md`](skills/thread-cards/SKILL.md) — generate branded header cards for threads.
+
 ## Resilience
 
 - **Retry with backoff**: All API calls retry 3x on network errors, 429s, and 5xx. Respects `Retry-After` headers and rate limit reset timestamps per platform.
