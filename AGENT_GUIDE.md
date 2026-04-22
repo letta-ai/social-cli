@@ -6,7 +6,25 @@ This guide tells you everything you need to operate it.
 
 ## Setup
 
-The tool must be run from a working directory containing a `.env` with platform credentials. You do not need to manage credentials — they are pre-configured. If a command fails with an auth error, tell your operator.
+The tool must be run from a working directory containing a `.env` with platform credentials.
+
+For X, the provider expects **OAuth 1.0a user credentials**, not OAuth 2.0 client credentials. The required env vars are:
+
+```bash
+X_API_KEY
+X_API_SECRET
+X_ACCESS_TOKEN
+X_ACCESS_TOKEN_SECRET
+```
+
+In the X developer portal, these map to the **OAuth 1.0 Keys** section:
+
+- Consumer Key → `X_API_KEY`
+- Consumer Secret → `X_API_SECRET`
+- Access Token → `X_ACCESS_TOKEN`
+- Access Token Secret → `X_ACCESS_TOKEN_SECRET`
+
+If a command fails with an auth error, tell your operator.
 
 ## Core Loop
 
