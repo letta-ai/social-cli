@@ -66,7 +66,7 @@ export interface Notification {
 }
 
 export interface EmbedInfo {
-  type: "external" | "images" | "record" | "recordWithMedia"
+  type: "external" | "images" | "record" | "recordWithMedia" | "video"
   /** External link URL. */
   uri?: string
   /** External link title. */
@@ -81,6 +81,14 @@ export interface EmbedInfo {
   quotedText?: string
   /** Quoted post author handle. */
   quotedAuthor?: string
+  /** Video HLS playlist URL (m3u8). */
+  playlist?: string
+  /** Video thumbnail JPG URL. */
+  thumbnail?: string
+  /** Video alt text. */
+  videoAlt?: string
+  /** Video aspect ratio. */
+  aspectRatio?: { width: number; height: number }
 }
 
 export interface SearchResult {
