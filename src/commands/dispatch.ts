@@ -521,24 +521,7 @@ async function dispatchPlatform(
     if (action.thread) {
       const t = action.thread
       try {
-        // Resolve media: explicit paths + auto-generated card
-        let mediaPaths: string[] = t.media ?? []
-        if (t.card) {
-          const { execSync } = await import("node:child_process")
-          const { resolve: resolvePath, dirname } = await import("node:path")
-          const { fileURLToPath } = await import("node:url")
-          const scriptDir = resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", "thread-cards")
-          const tmpCard = `/tmp/thread-card-${Date.now()}.png`
-          const cardOpts = typeof t.card === "object" ? t.card : {}
-          const title = (cardOpts.title ?? t.posts[0].slice(0, 80)).replace(/"/g, '\\"')
-          const subtitle = (cardOpts.subtitle ?? "").replace(/"/g, '\\"')
-          const pattern = cardOpts.pattern ?? "ripple"
-          execSync(
-            `npx tsx "${scriptDir}/generate-card.ts" --title "${title}" --subtitle "${subtitle}" --pattern ${pattern} --output "${tmpCard}"`,
-            { stdio: "pipe" },
-          )
-          mediaPaths = [tmpCard, ...mediaPaths]
-        }
+        const mediaPaths: string[] = t.media ?? []
 
         const plat = await getPlatformAsync(t.platform)
         const res = await plat.thread(t.posts, t.replyTo, {

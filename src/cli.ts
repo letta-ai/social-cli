@@ -165,32 +165,11 @@ program
   .argument("<posts...>", "Thread posts (each argument is one post)")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("-m, --media <paths...>", "Media file paths to attach to first post")
-  .option("--card", "Auto-generate a branded header card for the first post")
-  .option("--card-title <title>", "Title for the card (defaults to first post text)")
-  .option("--card-subtitle <subtitle>", "Subtitle for the card")
-  .option("--card-pattern <pattern>", "Card pattern: ripple, angular, orbital, grid", "ripple")
   .action(async (posts, opts) => {
     const { validateTexts } = await import("./util/validate.js")
     validateTexts(opts.platform, posts)
 
-    let mediaPaths: string[] = opts.media ?? []
-
-    // Auto-generate a card if --card is set
-    if (opts.card) {
-      const { execSync } = await import("node:child_process")
-      const { resolve, dirname } = await import("node:path")
-      const { fileURLToPath } = await import("node:url")
-      const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "skills", "thread-cards")
-      const tmpCard = `/tmp/thread-card-${Date.now()}.png`
-      const title = opts.cardTitle ?? posts[0].slice(0, 80)
-      const subtitle = opts.cardSubtitle ?? ""
-      const pattern = opts.cardPattern ?? "ripple"
-      execSync(
-        `npx tsx "${scriptDir}/generate-card.ts" --title "${title.replace(/"/g, '\\"')}" --subtitle "${subtitle.replace(/"/g, '\\"')}" --pattern ${pattern} --output "${tmpCard}"`,
-        { stdio: "pipe" },
-      )
-      mediaPaths = [tmpCard, ...mediaPaths]
-    }
+    const mediaPaths: string[] = opts.media ?? []
 
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
