@@ -243,7 +243,6 @@ Bundled agent-facing guidance and workflows under `skills/`:
 - [`skills/social-conduct/SKILL.md`](skills/social-conduct/SKILL.md) — hard rules, norms, and platform specifics for operating on Bluesky and X. Load before any posting, replying, following, liking, or DM behavior.
 - [`skills/blog/SKILL.md`](skills/blog/SKILL.md) — publish long-form markdown to GreenGale.
 - [`skills/semble-sources/SKILL.md`](skills/semble-sources/SKILL.md) — create public source-tracking collections on Semble linking threads to their sources.
-- [`skills/thread-cards/SKILL.md`](skills/thread-cards/SKILL.md) — generate branded header cards for threads.
 
 ## Resilience
 
