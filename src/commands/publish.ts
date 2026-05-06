@@ -93,8 +93,14 @@ interface PublishResult {
   error?: string
 }
 
+// sensemaker's Leaflet publication. The site.standard.publication record holds
+// the metadata Leaflet's appview reads (title, description, theme). The
+// matching pub.leaflet.publication record (created via Leaflet's UI) holds
+// the leaflet-native config (subdomain, preferences). Documents reference
+// the site.standard.publication via the `site` field.
 const DEFAULT_PUBLICATION_URI =
-  "at://did:plc:4j7exarb62djxycrgdfhuulr/site.standard.publication/3ml7mt7p7gq2u"
+  "at://did:plc:4j7exarb62djxycrgdfhuulr/site.standard.publication/3ml7tpkenes2j"
+const DEFAULT_PUBLICATION_DOMAIN = "https://sensemaker.leaflet.pub"
 const TID_LAST_TIMESTAMP = { value: 0 }
 
 /**
@@ -395,11 +401,14 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
     }
 
     const result = (await response.json()) as { uri: string; cid: string }
-    // Construct rendered URL on Leaflet's appview.
-    // Pattern: leaflet.pub/lish/{did}/{publication-rkey}/{document-rkey}
-    // Requires a matching pub.leaflet.publication record at {publication-rkey}.
+    // Construct rendered URL. Prefer the publication's clean subdomain when
+    // we're publishing to sensemaker's default pub; otherwise fall back to
+    // the deep /lish/{did}/{pub-rkey}/{doc-rkey} permalink.
     const pubRkey = publicationUri.split("/").pop() ?? ""
-    const url = `https://leaflet.pub/lish/${session.did}/${pubRkey}/${rkey}`
+    const url =
+      publicationUri === DEFAULT_PUBLICATION_URI
+        ? `${DEFAULT_PUBLICATION_DOMAIN}/${rkey}`
+        : `https://leaflet.pub/lish/${session.did}/${pubRkey}/${rkey}`
     return {
       success: true,
       uri: result.uri,
