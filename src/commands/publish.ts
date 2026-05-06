@@ -93,14 +93,6 @@ interface PublishResult {
   error?: string
 }
 
-// sensemaker's Leaflet publication. The site.standard.publication record holds
-// the metadata Leaflet's appview reads (title, description, theme). The
-// matching pub.leaflet.publication record (created via Leaflet's UI) holds
-// the leaflet-native config (subdomain, preferences). Documents reference
-// the site.standard.publication via the `site` field.
-const DEFAULT_PUBLICATION_URI =
-  "at://did:plc:4j7exarb62djxycrgdfhuulr/site.standard.publication/3ml7tpkenes2j"
-const DEFAULT_PUBLICATION_DOMAIN = "https://sensemaker.leaflet.pub"
 const TID_LAST_TIMESTAMP = { value: 0 }
 
 /**
@@ -267,6 +259,26 @@ function extractFrontmatter(content: string): { frontmatter: FrontmatterFields; 
   return { frontmatter, body }
 }
 
+/**
+ * Fetch a site.standard.publication record and return its `url` field, if any.
+ * Used to construct rendered document URLs that match the publisher's chosen
+ * domain (e.g. sensemaker.leaflet.pub) rather than the deep permalink.
+ *
+ * Parses an at-uri of the form at://{did}/{collection}/{rkey} and calls
+ * com.atproto.repo.getRecord on the appropriate PDS. Returns null on any
+ * error so callers can fall back to the deep permalink.
+ */
+async function fetchPublicationUrl(pds: string, publicationUri: string): Promise<string | null> {
+  const match = publicationUri.match(/^at:\/\/([^/]+)\/([^/]+)\/([^/]+)$/)
+  if (!match) return null
+  const [, repo, collection, rkey] = match
+  const params = new URLSearchParams({ repo, collection, rkey })
+  const response = await fetch(`${pds}/xrpc/com.atproto.repo.getRecord?${params}`)
+  if (!response.ok) return null
+  const data = (await response.json()) as { value?: { url?: string } }
+  return data.value?.url ?? null
+}
+
 async function createSession(
   pds: string,
   handle: string,
@@ -332,7 +344,15 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
   // Defaults
   if (!slug) slug = slugify(title)
   if (!rkey) rkey = generateTid()
-  const publicationUri = opts.publication ?? process.env.PUBLICATION_URI ?? DEFAULT_PUBLICATION_URI
+  const publicationUri = opts.publication ?? process.env.LEAFLET_PUBLICATION_URI
+  if (!publicationUri) {
+    return {
+      success: false,
+      error:
+        "No publication specified. Pass --publication <at-uri> or set LEAFLET_PUBLICATION_URI env var. " +
+        "Create a publication at https://leaflet.pub/new and find its AT-URI in your PDS.",
+    }
+  }
 
   // Build blocks + content
   const blocks = markdownToBlocks(body)
@@ -401,14 +421,15 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
     }
 
     const result = (await response.json()) as { uri: string; cid: string }
-    // Construct rendered URL. Prefer the publication's clean subdomain when
-    // we're publishing to sensemaker's default pub; otherwise fall back to
-    // the deep /lish/{did}/{pub-rkey}/{doc-rkey} permalink.
+    // Construct rendered URL. Prefer the publication's own `url` field
+    // (typically a Leaflet subdomain like sensemaker.leaflet.pub or a
+    // custom domain) so the link points at the publisher's chosen home.
+    // Fall back to the deep /lish/{did}/{pub-rkey}/{doc-rkey} permalink
+    // if the publication record doesn't expose a URL or can't be fetched.
     const pubRkey = publicationUri.split("/").pop() ?? ""
-    const url =
-      publicationUri === DEFAULT_PUBLICATION_URI
-        ? `${DEFAULT_PUBLICATION_DOMAIN}/${rkey}`
-        : `https://leaflet.pub/lish/${session.did}/${pubRkey}/${rkey}`
+    const fallbackUrl = `https://leaflet.pub/lish/${session.did}/${pubRkey}/${rkey}`
+    const pubDomain = await fetchPublicationUrl(pds, publicationUri).catch(() => null)
+    const url = pubDomain ? `${pubDomain.replace(/\/$/, "")}/${rkey}` : fallbackUrl
     return {
       success: true,
       uri: result.uri,

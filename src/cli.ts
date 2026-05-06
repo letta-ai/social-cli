@@ -545,7 +545,7 @@ program
   .option("-c, --content <text>", "Raw markdown content (use with --title)")
   .option("--rkey <rkey>", "Custom rkey (for updating an existing document)")
   .option("--slug <slug>", "URL slug (default: slugified title)")
-  .option("--publication <at-uri>", "Publication AT-URI (defaults to env or sensemaker)")
+  .option("--publication <at-uri>", "Publication AT-URI (or set LEAFLET_PUBLICATION_URI env var)")
   .option("--dry-run", "Print the record without writing to PDS")
   .action(async (opts) => {
     const { publish } = await import("./commands/publish.js")
