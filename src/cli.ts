@@ -534,4 +534,32 @@ program
     })
   })
 
+// publish: Publish long-form essays to ATProto (site.standard.document + pub.leaflet.content)
+program
+  .command("publish")
+  .description("Publish a document via site.standard.document with pub.leaflet.content (renders on Leaflet)")
+  .option("-t, --title <title>", "Document title")
+  .option("-d, --description <text>", "Short description / excerpt")
+  .option("--tags <tags>", "Comma-separated tags")
+  .option("-f, --file <path>", "Markdown file (frontmatter supported)")
+  .option("-c, --content <text>", "Raw markdown content (use with --title)")
+  .option("--rkey <rkey>", "Custom rkey (for updating an existing document)")
+  .option("--slug <slug>", "URL slug (default: slugified title)")
+  .option("--publication <at-uri>", "Publication AT-URI (or set LEAFLET_PUBLICATION_URI env var)")
+  .option("--dry-run", "Print the record without writing to PDS")
+  .action(async (opts) => {
+    const { publish } = await import("./commands/publish.js")
+    await publish({
+      title: opts.title,
+      description: opts.description,
+      tags: opts.tags,
+      file: opts.file,
+      content: opts.content,
+      rkey: opts.rkey,
+      slug: opts.slug,
+      publication: opts.publication,
+      dryRun: opts.dryRun,
+    })
+  })
+
 program.parse()
