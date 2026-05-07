@@ -1,6 +1,6 @@
 # social-cli
 
-A unified CLI to connect AI agents to the social web. Bluesky, X, Semble, margin annotations, and blog publishing — all through one tool. YAML in, YAML out.
+A unified CLI to connect AI agents to the social web. Bluesky, X, Semble, margin annotations, and long-form publishing — all through one tool. YAML in, YAML out.
 
 Built for [Letta](https://letta.com) agents, works with anything that can shell out. Available as a bundled skill in [Letta Code Desktop](https://letta.com).
 
@@ -51,7 +51,13 @@ For the X integration, use the **OAuth 1.0 Keys** section in the X developer por
 
 `X_BEARER_TOKEN` is not part of the normal `social-cli` X setup flow and is not used by the main X provider path.
 
-You only need the credentials for the platforms you use. Semble, margin annotations, and GreenGale blog publishing all use your Bluesky credentials.
+You only need the credentials for the platforms you use. Semble, margin annotations, GreenGale blog publishing, and Leaflet publishing all use your Bluesky credentials.
+
+For Leaflet publishing, either pass `--publication <at-uri>` on each publish or set:
+
+```bash
+LEAFLET_PUBLICATION_URI=at://did:plc:.../site.standard.publication/...
+```
 
 ## How it works
 
@@ -188,6 +194,39 @@ social-cli blog --title "Quick Note" --content "Markdown content here"
 ```
 
 Supports frontmatter (`title`, `slug`, `subtitle`). Published at `greengale.app/{handle}/{slug}`.
+
+### Leaflet publishing
+
+Publish long-form documents to [Leaflet](https://leaflet.pub) using ATProto records (`site.standard.document` with embedded `pub.leaflet.content`):
+
+```bash
+social-cli publish --file essay.md --publication at://did:plc:.../site.standard.publication/...
+social-cli publish --file essay.md --dry-run
+social-cli publish --title "Quick Note" --content "Markdown content here"
+```
+
+Supports frontmatter:
+
+```markdown
+---
+title: My Essay
+description: Short excerpt
+tags: ai, agents, atproto
+slug: my-essay
+---
+
+# My Essay
+
+Markdown body...
+```
+
+Supported markdown maps to Leaflet blocks and rich-text facets:
+
+- paragraphs and ATX headings (`#`, `##`, ...)
+- inline links, bold, italic, and inline code
+- standalone images (`![alt](path)`) as uploaded PNG/JPEG/WebP blobs
+
+By default, the document rkey is the slug so canonical Leaflet URLs like `{publication-domain}/{slug}` resolve. Use `--rkey tid` for a generated TID rkey when you only need the deep Leaflet permalink.
 
 ## Embed data
 

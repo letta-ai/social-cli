@@ -419,7 +419,7 @@ async function uploadBlob(
       Authorization: `Bearer ${accessJwt}`,
       "Content-Type": mime,
     },
-    body: data,
+    body: data as unknown as BodyInit,
   })
   if (!response.ok) {
     throw new Error(`uploadBlob failed: ${response.status} ${await response.text()}`)
@@ -536,7 +536,15 @@ function generateUuidV7(): string {
  * Used by indexers (leaflet-search etc.) for full-text search.
  */
 function blocksToTextContent(blocks: LeafletPageBlock[]): string {
-  return blocks.map(b => b.block.plaintext).join("\n")
+  return blocks
+    .map(({ block }) => {
+      if (block.$type === "pub.leaflet.blocks.image") {
+        return block.alt ?? ""
+      }
+      return block.plaintext
+    })
+    .filter(Boolean)
+    .join("\n")
 }
 
 /**

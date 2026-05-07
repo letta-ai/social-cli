@@ -325,3 +325,28 @@ When processing inbox notifications:
 | `posts` | User's recent posts | stdout YAML |
 | `whoami` | Current account info | stdout YAML |
 | `rate-limits` | Rate limit status | stdout YAML |
+
+## Long-form publishing
+
+Use `publish` for Leaflet / Standard.site documents. This writes a `site.standard.document` record with embedded `pub.leaflet.content` to the configured Bluesky PDS.
+
+```bash
+social-cli publish --file essay.md --publication at://did:plc:.../site.standard.publication/...
+social-cli publish --file essay.md --dry-run
+social-cli publish --title "Quick Note" --content "Markdown content here"
+```
+
+The command requires either `--publication <at-uri>` or `LEAFLET_PUBLICATION_URI` in the environment. File input supports frontmatter:
+
+```markdown
+---
+title: My Essay
+description: Short excerpt
+tags: ai, agents, atproto
+slug: my-essay
+---
+```
+
+Supported markdown: paragraphs, ATX headings, inline links, bold, italic, inline code, and standalone PNG/JPEG/WebP images (`![alt](path)`). Images are uploaded as PDS blobs and must satisfy Leaflet's blob size limits.
+
+By default, `publish` uses the slug as the record rkey so `{publication-domain}/{slug}` resolves. Use `--rkey tid` only when a generated TID rkey and deep Leaflet permalink are acceptable.
