@@ -87,7 +87,7 @@ async function withSession<T>(fn: (agent: Agent) => Promise<T>): Promise<T> {
 }
 
 /** Extract embed info from a post's embed view object. */
-function extractEmbed(embed: any): EmbedInfo | undefined {
+export function extractEmbed(embed: any): EmbedInfo | undefined {
   if (!embed?.$type) return undefined
 
   switch (embed.$type) {
@@ -119,7 +119,7 @@ function extractEmbed(embed: any): EmbedInfo | undefined {
     }
 
     case "app.bsky.embed.recordWithMedia#view": {
-      // Combination of record + media (images or external link)
+      // Combination of record + media (images, video, or external link)
       const info: EmbedInfo = { type: "recordWithMedia" }
       // Extract the record portion
       const innerRec = embed.record?.record ?? embed.record
@@ -139,9 +139,23 @@ function extractEmbed(embed: any): EmbedInfo | undefined {
         info.uri = media.external?.uri
         info.title = media.external?.title
         info.description = media.external?.description || undefined
+      } else if (media?.$type === "app.bsky.embed.video#view") {
+        info.playlist = media.playlist
+        info.thumbnail = media.thumbnail
+        info.videoAlt = media.alt || undefined
+        info.aspectRatio = media.aspectRatio
       }
       return info
     }
+
+    case "app.bsky.embed.video#view":
+      return {
+        type: "video",
+        playlist: embed.playlist,
+        thumbnail: embed.thumbnail,
+        videoAlt: embed.alt || undefined,
+        aspectRatio: embed.aspectRatio,
+      }
 
     default:
       return undefined
