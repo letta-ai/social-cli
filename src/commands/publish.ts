@@ -51,9 +51,27 @@ interface LeafletLinkFeature {
   uri: string
 }
 
+interface LeafletBoldFeature {
+  $type: "pub.leaflet.richtext.facet#bold"
+}
+
+interface LeafletItalicFeature {
+  $type: "pub.leaflet.richtext.facet#italic"
+}
+
+interface LeafletCodeFeature {
+  $type: "pub.leaflet.richtext.facet#code"
+}
+
+type LeafletFeature =
+  | LeafletLinkFeature
+  | LeafletBoldFeature
+  | LeafletItalicFeature
+  | LeafletCodeFeature
+
 interface LeafletFacet {
   index: LeafletByteSlice
-  features: LeafletLinkFeature[]
+  features: LeafletFeature[]
 }
 
 interface LeafletTextBlock {
@@ -185,9 +203,17 @@ function stripMarkdown(text: string): string {
  * doesn't lose the spaces between them.
  */
 function stripMarkdownInline(text: string): string {
+  return stripMarkdownNonLinks(text).replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+}
+
+/**
+ * Strip everything stripMarkdownInline strips EXCEPT link syntax. Used as a
+ * preprocessing pass in parseInlineWithFacets so bold/italic/code spans that
+ * surround a link (e.g. `**[text](url).**`) get unwrapped before the link
+ * walker runs — otherwise the markers end up in plaintext as literal `**`.
+ */
+function stripMarkdownNonLinks(text: string): string {
   return text
-    // links: [text](url) → text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     // bold: **text** or __text__
     .replace(/(\*\*|__)(.+?)\1/g, "$2")
     // italic: *text* or _text_ (avoid matching inside words)
@@ -216,36 +242,80 @@ function parseInlineWithFacets(input: string): {
   plaintext: string
   facets: LeafletFacet[]
 } {
-  const linkRe = /\[([^\]]+)\]\(([^)]+)\)/g
   const encoder = new TextEncoder()
+  // First normalize escapes and autolinks — neither generates a facet,
+  // they're just transformations on the visible text.
+  const normalized = input
+    .replace(/<((?:https?|mailto):[^>]+)>/g, "$1")
+    .replace(/\\([\\`*_{}[\]()#+\-.!])/g, "$1")
+
+  // Token order matters. Patterns are tried in this priority:
+  //  1. `**[text](url)**`  — bold + link (both facets at the same span)
+  //  2. `**text**` / `__text__` — bold
+  //  3. `[text](url)` — link
+  //  4. `*text*` / `_text_` — italic (must be tried after bold so we don't
+  //     eat a `**` as two italics; word-boundary lookaround prevents matching
+  //     emphasis inside identifiers)
+  //  5. `` `text` `` — inline code
+  //  6. plain text (anything else, one chunk at a time)
+  const tokenRe = new RegExp(
+    [
+      "\\*\\*\\[([^\\]]+)\\]\\(([^)]+)\\)\\*\\*", // 1,2: boldLinkText, boldLinkUri
+      "\\*\\*([^*]+?)\\*\\*|__([^_]+?)__", // 3,4: bold (asterisk or underscore)
+      "\\[([^\\]]+)\\]\\(([^)]+)\\)", // 5,6: linkText, linkUri
+      "(?<![\\w*])\\*([^*\\n]+?)\\*(?![\\w*])|(?<![\\w_])_([^_\\n]+?)_(?![\\w_])", // 7,8: italic
+      "`([^`]+?)`", // 9: code
+      "[\\s\\S]", // 10: any single char (plain text fallback)
+    ].join("|"),
+    "g",
+  )
+
   let plaintext = ""
   let byteOffset = 0
-  let lastEnd = 0
   const facets: LeafletFacet[] = []
   let m: RegExpExecArray | null
-  while ((m = linkRe.exec(input)) !== null) {
-    const between = input.slice(lastEnd, m.index)
-    const stripped = stripMarkdownInline(between)
-    plaintext += stripped
-    byteOffset += encoder.encode(stripped).length
+  let plainBuffer = ""
 
-    const linkText = stripMarkdownInline(m[1])
-    const linkUri = m[2]
-    const startByte = byteOffset
-    plaintext += linkText
-    const endByte = startByte + encoder.encode(linkText).length
-    byteOffset = endByte
-
-    facets.push({
-      index: { byteStart: startByte, byteEnd: endByte },
-      features: [{ $type: "pub.leaflet.richtext.facet#link", uri: linkUri }],
-    })
-    lastEnd = m.index + m[0].length
+  const flushPlain = () => {
+    if (plainBuffer) {
+      plaintext += plainBuffer
+      byteOffset += encoder.encode(plainBuffer).length
+      plainBuffer = ""
+    }
   }
-  // Trailing text after last match. Caller is expected to have trimmed the
-  // input already, so internal whitespace is preserved verbatim.
-  const tail = stripMarkdownInline(input.slice(lastEnd))
-  plaintext += tail
+
+  const emitSpan = (text: string, features: LeafletFacet["features"]) => {
+    flushPlain()
+    const startByte = byteOffset
+    plaintext += text
+    const endByte = startByte + encoder.encode(text).length
+    byteOffset = endByte
+    facets.push({ index: { byteStart: startByte, byteEnd: endByte }, features })
+  }
+
+  while ((m = tokenRe.exec(normalized)) !== null) {
+    if (m[1] !== undefined) {
+      // bold + link
+      emitSpan(m[1], [
+        { $type: "pub.leaflet.richtext.facet#bold" },
+        { $type: "pub.leaflet.richtext.facet#link", uri: m[2] },
+      ])
+    } else if (m[3] !== undefined || m[4] !== undefined) {
+      emitSpan(m[3] ?? m[4], [{ $type: "pub.leaflet.richtext.facet#bold" }])
+    } else if (m[5] !== undefined) {
+      emitSpan(m[5], [
+        { $type: "pub.leaflet.richtext.facet#link", uri: m[6] },
+      ])
+    } else if (m[7] !== undefined || m[8] !== undefined) {
+      emitSpan(m[7] ?? m[8], [{ $type: "pub.leaflet.richtext.facet#italic" }])
+    } else if (m[9] !== undefined) {
+      emitSpan(m[9], [{ $type: "pub.leaflet.richtext.facet#code" }])
+    } else {
+      // Plain char — buffer to coalesce runs
+      plainBuffer += m[0]
+    }
+  }
+  flushPlain()
   return { plaintext, facets }
 }
 
