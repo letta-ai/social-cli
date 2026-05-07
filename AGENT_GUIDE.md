@@ -172,6 +172,29 @@ social-cli dispatch --dry-run
 
 Always dry-run if you're unsure about your outbox.
 
+### Dispatch hooks
+
+Operators can configure hooks in `config.yaml` to run scripts around dispatch actions:
+
+```yaml
+hooks:
+  preDispatch:
+    - event: reply
+      command: "bash hooks/example-validate-reply.sh"
+  postDispatch:
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+  onError:
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+```
+
+Hooks only apply to the dispatch pipeline, not quick commands. Events are `reply`, `post`, `thread`, `follow`, `like`, `annotate`, `bookmark`, `highlight`, or `*`.
+
+`preDispatch` hooks are blocking: exit `0` allows the action, exit `1` skips it, exit `2` aborts dispatch. `postDispatch` and `onError` hooks are async follow-ups.
+
+Hook scripts receive context as environment variables: `SOCIAL_HOOK_EVENT`, `SOCIAL_HOOK_PLATFORM`, `SOCIAL_HOOK_ACTION_ID`, `SOCIAL_HOOK_TARGET_ID`, `SOCIAL_HOOK_TEXT`, `SOCIAL_HOOK_OUTBOX_PATH`, `SOCIAL_HOOK_RESULT`, and `SOCIAL_HOOK_ERROR`.
+
 ## Quick Commands
 
 For one-off actions outside the sync/dispatch loop:
