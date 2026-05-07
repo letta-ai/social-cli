@@ -7,6 +7,7 @@ import { readFileSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { parse } from "yaml"
 import { config as loadDotenv } from "dotenv"
+import type { HooksConfig } from "./types/hooks.js"
 
 export interface AccountConfig {
   handle: string
@@ -38,6 +39,7 @@ export interface Config {
   sync?: SyncConfig
   dispatch?: DispatchConfig
   state?: StateConfig
+  hooks?: HooksConfig
 }
 
 interface RawConfig {
@@ -45,6 +47,7 @@ interface RawConfig {
   sync?: SyncConfig
   dispatch?: DispatchConfig
   state?: StateConfig
+  hooks?: HooksConfig
   [key: string]: unknown
 }
 
@@ -70,6 +73,9 @@ export function loadConfig(): Config {
       return {
         accounts,
         sync: parsed.sync,
+        dispatch: parsed.dispatch,
+        state: parsed.state,
+        hooks: parsed.hooks,
       }
     }
   }
