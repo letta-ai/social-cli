@@ -581,7 +581,12 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
 
   // Defaults
   if (!slug) slug = slugify(title)
-  if (!rkey) rkey = generateTid()
+  // Default rkey to the slug — Leaflet's URL lookup queries by rkey, while
+  // the canonical doc URL is {domain}/{path}. For both to resolve to the
+  // same record, rkey must equal the slug. Fall back to a TID rkey only if
+  // the user explicitly opts out via `--rkey tid` or sets one in frontmatter.
+  if (!rkey) rkey = slug
+  else if (rkey === "tid") rkey = generateTid()
   const publicationUri = opts.publication ?? process.env.LEAFLET_PUBLICATION_URI
   if (!publicationUri) {
     return {
@@ -687,12 +692,16 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
     // Construct rendered URL. Prefer the publication's own `url` field
     // (typically a Leaflet subdomain like sensemaker.leaflet.pub or a
     // custom domain) so the link points at the publisher's chosen home.
-    // Fall back to the deep /lish/{did}/{pub-rkey}/{doc-rkey} permalink
-    // if the publication record doesn't expose a URL or can't be fetched.
+    // Use the doc's slug for the URL path — Leaflet's middleware rewrites
+    // {domain}/{slug} → /lish/{did}/{pub-rkey}/{slug} and looks up the
+    // record by rkey, so the slug must equal the rkey for this to resolve
+    // (which is what we ensure when defaulting rkey from slug above).
+    // Fall back to the deep /lish/{did}/{pub-rkey}/{rkey} permalink if the
+    // publication record can't be fetched or doesn't expose a URL.
     const pubRkey = publicationUri.split("/").pop() ?? ""
     const fallbackUrl = `https://leaflet.pub/lish/${session.did}/${pubRkey}/${rkey}`
     const pubDomain = await fetchPublicationUrl(pds, publicationUri).catch(() => null)
-    const url = pubDomain ? `${pubDomain.replace(/\/$/, "")}/${rkey}` : fallbackUrl
+    const url = pubDomain ? `${pubDomain.replace(/\/$/, "")}/${slug}` : fallbackUrl
     return {
       success: true,
       uri: result.uri,
