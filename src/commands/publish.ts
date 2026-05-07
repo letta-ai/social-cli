@@ -18,6 +18,7 @@
  */
 
 import { readFileSync, existsSync } from "node:fs"
+import { resolve as pathResolve, dirname } from "node:path"
 import { loadConfig, loadCredentials } from "../config.js"
 
 interface PublishOptions {
@@ -40,9 +41,25 @@ interface FrontmatterFields {
   rkey?: string
 }
 
+interface LeafletByteSlice {
+  byteStart: number
+  byteEnd: number
+}
+
+interface LeafletLinkFeature {
+  $type: "pub.leaflet.richtext.facet#link"
+  uri: string
+}
+
+interface LeafletFacet {
+  index: LeafletByteSlice
+  features: LeafletLinkFeature[]
+}
+
 interface LeafletTextBlock {
   $type: "pub.leaflet.blocks.text"
   plaintext: string
+  facets?: LeafletFacet[]
   textSize?: "default" | "small" | "large"
 }
 
@@ -50,9 +67,25 @@ interface LeafletHeaderBlock {
   $type: "pub.leaflet.blocks.header"
   level: number
   plaintext: string
+  facets?: LeafletFacet[]
 }
 
-type LeafletBlock = LeafletTextBlock | LeafletHeaderBlock
+interface BlobRef {
+  $type: "blob"
+  ref: { $link: string }
+  mimeType: string
+  size: number
+}
+
+interface LeafletImageBlock {
+  $type: "pub.leaflet.blocks.image"
+  image: BlobRef
+  aspectRatio: { width: number; height: number }
+  alt?: string
+  fullBleed?: boolean
+}
+
+type LeafletBlock = LeafletTextBlock | LeafletHeaderBlock | LeafletImageBlock
 
 interface LeafletPageBlock {
   $type: "pub.leaflet.pages.linearDocument#block"
@@ -143,6 +176,15 @@ function slugify(title: string): string {
  * features. See reference/sensemaker/followups/social-cli-publish.md.
  */
 function stripMarkdown(text: string): string {
+  return stripMarkdownInline(text).trim()
+}
+
+/**
+ * Same as stripMarkdown but preserves leading/trailing whitespace.
+ * Used by parseInlineWithFacets so concatenating chunks around facet spans
+ * doesn't lose the spaces between them.
+ */
+function stripMarkdownInline(text: string): string {
   return text
     // links: [text](url) → text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
@@ -156,46 +198,242 @@ function stripMarkdown(text: string): string {
     .replace(/<((?:https?|mailto):[^>]+)>/g, "$1")
     // escaped chars: \* → *, \_ → _, etc.
     .replace(/\\([\\`*_{}[\]()#+\-.!])/g, "$1")
-    .trim()
+}
+
+/**
+ * Inline markdown link parser. Walks `[text](url)` patterns, replaces them
+ * with just the visible text, and emits a parallel array of richtext facets
+ * with UTF-8 byte offsets for each link span. Other markdown formatting
+ * (bold, italic, code) is stripped to plaintext for now.
+ *
+ * Returns `{ plaintext, facets }`. `facets` is empty if no links are found.
+ *
+ * UTF-8 byte offset note: Leaflet (and bsky) facets use byte offsets into
+ * the UTF-8-encoded plaintext, NOT character/code-point offsets. We use
+ * TextEncoder to get the byte length of each chunk as we build the output.
+ */
+function parseInlineWithFacets(input: string): {
+  plaintext: string
+  facets: LeafletFacet[]
+} {
+  const linkRe = /\[([^\]]+)\]\(([^)]+)\)/g
+  const encoder = new TextEncoder()
+  let plaintext = ""
+  let byteOffset = 0
+  let lastEnd = 0
+  const facets: LeafletFacet[] = []
+  let m: RegExpExecArray | null
+  while ((m = linkRe.exec(input)) !== null) {
+    const between = input.slice(lastEnd, m.index)
+    const stripped = stripMarkdownInline(between)
+    plaintext += stripped
+    byteOffset += encoder.encode(stripped).length
+
+    const linkText = stripMarkdownInline(m[1])
+    const linkUri = m[2]
+    const startByte = byteOffset
+    plaintext += linkText
+    const endByte = startByte + encoder.encode(linkText).length
+    byteOffset = endByte
+
+    facets.push({
+      index: { byteStart: startByte, byteEnd: endByte },
+      features: [{ $type: "pub.leaflet.richtext.facet#link", uri: linkUri }],
+    })
+    lastEnd = m.index + m[0].length
+  }
+  // Trailing text after last match. Caller is expected to have trimmed the
+  // input already, so internal whitespace is preserved verbatim.
+  const tail = stripMarkdownInline(input.slice(lastEnd))
+  plaintext += tail
+  return { plaintext, facets }
+}
+
+/**
+ * Read PNG/JPEG/WebP image headers to extract width, height, and mimeType.
+ * Throws if the format isn't recognized. Supports the common cases without
+ * pulling in a dependency.
+ */
+function getImageInfo(data: Buffer): {
+  width: number
+  height: number
+  mime: string
+} {
+  // PNG: 8-byte signature, then IHDR chunk at bytes 8-23 (width @ 16, height @ 20)
+  if (
+    data[0] === 0x89 &&
+    data[1] === 0x50 &&
+    data[2] === 0x4e &&
+    data[3] === 0x47
+  ) {
+    return {
+      width: data.readUInt32BE(16),
+      height: data.readUInt32BE(20),
+      mime: "image/png",
+    }
+  }
+  // JPEG: starts FFD8, scan for SOFn marker (FFC0..FFCF except DHT/DAC/DRI)
+  if (data[0] === 0xff && data[1] === 0xd8) {
+    let i = 2
+    while (i < data.length - 8) {
+      if (data[i] !== 0xff) {
+        i++
+        continue
+      }
+      const marker = data[i + 1]
+      const isSOF =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      if (isSOF) {
+        return {
+          height: data.readUInt16BE(i + 5),
+          width: data.readUInt16BE(i + 7),
+          mime: "image/jpeg",
+        }
+      }
+      // Skip this segment
+      const segLen = data.readUInt16BE(i + 2)
+      i += 2 + segLen
+    }
+  }
+  // WebP: "RIFF....WEBP" header, then VP8 / VP8L / VP8X chunk
+  if (
+    data[0] === 0x52 &&
+    data[1] === 0x49 &&
+    data[2] === 0x46 &&
+    data[3] === 0x46 &&
+    data[8] === 0x57 &&
+    data[9] === 0x45 &&
+    data[10] === 0x42 &&
+    data[11] === 0x50
+  ) {
+    const subtype = data.toString("ascii", 12, 16)
+    if (subtype === "VP8X") {
+      const width = (data[24] | (data[25] << 8) | (data[26] << 16)) + 1
+      const height = (data[27] | (data[28] << 8) | (data[29] << 16)) + 1
+      return { width, height, mime: "image/webp" }
+    }
+    if (subtype === "VP8L") {
+      const b0 = data[21]
+      const b1 = data[22]
+      const b2 = data[23]
+      const b3 = data[24]
+      const width = (((b1 & 0x3f) << 8) | b0) + 1
+      const height = (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6)) + 1
+      return { width, height, mime: "image/webp" }
+    }
+    if (subtype === "VP8 ") {
+      const width = data.readUInt16LE(26) & 0x3fff
+      const height = data.readUInt16LE(28) & 0x3fff
+      return { width, height, mime: "image/webp" }
+    }
+  }
+  throw new Error("Unsupported image format (only PNG, JPEG, WebP)")
+}
+
+/**
+ * Upload a blob to the agent's PDS via com.atproto.repo.uploadBlob.
+ * Returns the BlobRef that can be embedded in a record.
+ */
+async function uploadBlob(
+  pds: string,
+  accessJwt: string,
+  data: Buffer,
+  mime: string
+): Promise<BlobRef> {
+  const response = await fetch(`${pds}/xrpc/com.atproto.repo.uploadBlob`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessJwt}`,
+      "Content-Type": mime,
+    },
+    body: data,
+  })
+  if (!response.ok) {
+    throw new Error(`uploadBlob failed: ${response.status} ${await response.text()}`)
+  }
+  const result = (await response.json()) as { blob: BlobRef }
+  return result.blob
 }
 
 /**
  * Convert a markdown body to an array of Leaflet page-blocks.
  *
- * MVP scope:
+ * Supports:
  * - ATX headings (`# heading`) → pub.leaflet.blocks.header
  * - Paragraphs (everything else, separated by blank lines) → pub.leaflet.blocks.text
- * - Blockquotes, lists, code blocks, images — flattened to plaintext for now
+ * - Inline links `[text](url)` → richtext facets on text/header blocks
+ * - Standalone image lines `![alt](path)` → pub.leaflet.blocks.image
+ *   (path resolved relative to `basePath`; blob uploaded to PDS)
  *
- * Each block's plaintext has markdown formatting stripped (no facets in MVP).
+ * Other markdown (bold, italic, code, lists, blockquotes, code blocks) is
+ * stripped to plaintext for now.
  */
-function markdownToBlocks(markdown: string): LeafletPageBlock[] {
+async function markdownToBlocks(
+  markdown: string,
+  opts: { pds: string; accessJwt: string; basePath: string }
+): Promise<LeafletPageBlock[]> {
   const blocks: LeafletPageBlock[] = []
   // Split on blank lines (one or more newlines with only whitespace between)
   const paragraphs = markdown.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean)
 
   for (const para of paragraphs) {
+    // Standalone image: ![alt](path) — must be the entire paragraph
+    const imageMatch = para.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
+    if (imageMatch) {
+      const alt = imageMatch[1]
+      const imgRelPath = imageMatch[2]
+      const imgAbsPath = imgRelPath.startsWith("/")
+        ? imgRelPath
+        : pathResolve(opts.basePath, imgRelPath)
+      if (!existsSync(imgAbsPath)) {
+        throw new Error(`Image not found: ${imgAbsPath} (from \`${imgRelPath}\`)`)
+      }
+      const imgData = readFileSync(imgAbsPath)
+      const info = getImageInfo(imgData)
+      const blob = await uploadBlob(opts.pds, opts.accessJwt, imgData, info.mime)
+      const imageBlock: LeafletImageBlock = {
+        $type: "pub.leaflet.blocks.image",
+        image: blob,
+        aspectRatio: { width: info.width, height: info.height },
+      }
+      if (alt) imageBlock.alt = alt
+      blocks.push({
+        $type: "pub.leaflet.pages.linearDocument#block",
+        block: imageBlock,
+      })
+      continue
+    }
+
     // Heading? ATX form: 1-6 #s + space + text
     const headingMatch = para.match(/^(#{1,6})\s+(.+?)\s*#*$/)
     if (headingMatch && !para.includes("\n")) {
+      const { plaintext, facets } = parseInlineWithFacets(headingMatch[2])
+      const headerBlock: LeafletHeaderBlock = {
+        $type: "pub.leaflet.blocks.header",
+        level: headingMatch[1].length,
+        plaintext,
+      }
+      if (facets.length > 0) headerBlock.facets = facets
       blocks.push({
         $type: "pub.leaflet.pages.linearDocument#block",
-        block: {
-          $type: "pub.leaflet.blocks.header",
-          level: headingMatch[1].length,
-          plaintext: stripMarkdown(headingMatch[2]),
-        },
+        block: headerBlock,
       })
       continue
     }
     // Otherwise: text block. Collapse internal newlines to single space.
     const flat = para.replace(/\s*\n\s*/g, " ").trim()
+    const { plaintext, facets } = parseInlineWithFacets(flat)
+    const textBlock: LeafletTextBlock = {
+      $type: "pub.leaflet.blocks.text",
+      plaintext,
+    }
+    if (facets.length > 0) textBlock.facets = facets
     blocks.push({
       $type: "pub.leaflet.pages.linearDocument#block",
-      block: {
-        $type: "pub.leaflet.blocks.text",
-        plaintext: stripMarkdown(flat),
-      },
+      block: textBlock,
     })
   }
 
@@ -354,8 +592,30 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
     }
   }
 
-  // Build blocks + content
-  const blocks = markdownToBlocks(body)
+  // Establish session early so we can upload image blobs while parsing.
+  // (Skipped in dry-run; image blocks would require an upload, so we error
+  // on dry-run with images for now.)
+  const session = opts.dryRun
+    ? null
+    : await createSession(pds, handle, appPassword)
+
+  // Resolve a base path for relative image references. If publishing from a
+  // file, that's the file's directory; otherwise, current working directory.
+  const basePath = opts.file ? dirname(pathResolve(opts.file)) : process.cwd()
+
+  // Build blocks + content. If the body contains image lines but we're in
+  // dry-run mode, fall back: emit a warning and skip blob upload by using a
+  // placeholder accessJwt (markdownToBlocks will throw on actual upload).
+  let blocks: LeafletPageBlock[]
+  try {
+    blocks = await markdownToBlocks(body, {
+      pds,
+      accessJwt: session?.accessJwt ?? "",
+      basePath,
+    })
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) }
+  }
   if (blocks.length === 0) {
     return { success: false, error: "No content blocks parsed from body" }
   }
@@ -397,8 +657,11 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
     }
   }
 
+  // Session was created above (skipped only in dry-run, which returns earlier).
+  if (!session) {
+    return { success: false, error: "Internal error: missing session for write" }
+  }
   try {
-    const session = await createSession(pds, handle, appPassword)
     const response = await fetch(`${pds}/xrpc/com.atproto.repo.putRecord`, {
       method: "POST",
       headers: {
