@@ -29,8 +29,6 @@ export interface OutboxAction {
     replyTo?: string
     /** Media file paths to attach to the first post. */
     media?: string[]
-    /** Auto-generate a branded header card. */
-    card?: boolean | { title?: string; subtitle?: string; pattern?: string }
     idempotencyKey?: string
   }
   annotate?: {
