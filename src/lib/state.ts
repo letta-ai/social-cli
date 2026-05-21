@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync, renameSync } from "node:fs"
-import { resolve, join } from "node:path"
+import { resolve, join, basename } from "node:path"
 import { parse, stringify } from "yaml"
 import { writeFileAtomic } from "../util/fs.js"
 
@@ -36,8 +36,18 @@ export const DEFAULT_STATE_DIR = ".social-cli/state"
  * repository root so agents do not accidentally stage inboxes, ledgers, or
  * dispatch results.
  */
+function sanitizeStateSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "default"
+}
+
+export function defaultStateDir(): string {
+  const agentId = process.env.AGENT_ID
+  if (agentId) return join(DEFAULT_STATE_DIR, sanitizeStateSegment(agentId))
+  return join(DEFAULT_STATE_DIR, "default")
+}
+
 export function resolveStateDir(stateDir?: string): string {
-  return resolve(process.cwd(), stateDir ?? DEFAULT_STATE_DIR)
+  return resolve(process.cwd(), stateDir ?? defaultStateDir())
 }
 
 function ensureStateDir(stateDir?: string): string {
@@ -347,6 +357,17 @@ export function findRootRuntimeFiles(cwd = process.cwd()): string[] {
     .sort()
 }
 
+
+export function rootRuntimeWarning(stateDir?: string): string | null {
+  const files = findRootRuntimeFiles()
+  if (files.length === 0) return null
+
+  const preview = files.slice(0, 5).join(", ")
+  const suffix = files.length > 5 ? `, and ${files.length - 5} more` : ""
+  return `[warn] Found ${files.length} legacy runtime state file(s) in repo root (${preview}${suffix}). `
+    + `Current stateDir is ${resolveStateDir(stateDir)}. `
+    + "Run `social-cli doctor --migrate` to move generated state into the configured state directory."
+}
 
 export interface RuntimeFileMigration {
   from: string

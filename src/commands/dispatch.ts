@@ -34,6 +34,7 @@ import {
   writePlatformFile,
   readSharedFile,
   resolveStateDir,
+  rootRuntimeWarning,
 } from "../lib/state.js"
 
 /**
@@ -231,6 +232,8 @@ async function dispatchPlatform(
   const platformIsolation = config.state?.platformIsolation ?? true
   const stateDir = config.state?.stateDir
   const allowedPlatforms = config.dispatch?.allowedPlatforms
+  const runtimeWarning = rootRuntimeWarning(stateDir)
+  if (runtimeWarning) console.warn(runtimeWarning)
 
   // Validate platform is in allowed set
   if (allowedPlatforms && allowedPlatforms.length > 0) {

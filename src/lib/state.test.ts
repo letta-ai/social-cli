@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import {
   DEFAULT_STATE_DIR,
+  defaultStateDir,
   findRootRuntimeFiles,
   migrateRootRuntimeFiles,
   getPlatformFilePath,
@@ -26,10 +27,11 @@ describe("state paths", () => {
   })
 
   it("defaults generated state to an ignored subdirectory", () => {
-    expect(resolveStateDir()).toBe(join(tempDir, DEFAULT_STATE_DIR))
-    expect(getPlatformFilePath("inbox", "bsky")).toBe(join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))
-    expect(getSharedFilePath("processed")).toBe(join(tempDir, DEFAULT_STATE_DIR, "processed.yaml"))
-    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR))).toBe(true)
+    expect(defaultStateDir()).toBe(join(DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default"))
+    expect(resolveStateDir()).toBe(join(tempDir, DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default"))
+    expect(getPlatformFilePath("inbox", "bsky")).toBe(join(tempDir, DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default", "inbox-bsky.yaml"))
+    expect(getSharedFilePath("processed")).toBe(join(tempDir, DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default", "processed.yaml"))
+    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default"))).toBe(true)
   })
 
   it("honors explicit stateDir", () => {
@@ -58,9 +60,9 @@ describe("state paths", () => {
 
     expect(migrated).toHaveLength(1)
     expect(migrated[0].from).toBe(join(tempDir, "inbox-bsky.yaml"))
-    expect(migrated[0].to).toBe(join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))
+    expect(migrated[0].to).toBe(join(tempDir, DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default", "inbox-bsky.yaml"))
     expect(existsSync(join(tempDir, "inbox-bsky.yaml"))).toBe(false)
-    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))).toBe(true)
+    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR, process.env.AGENT_ID ?? "default", "inbox-bsky.yaml"))).toBe(true)
     expect(existsSync(join(tempDir, "notes.md"))).toBe(true)
   })
 
