@@ -11,19 +11,39 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync } from "node:fs"
-import { resolve, join, basename, dirname } from "node:path"
+import { resolve, join } from "node:path"
 import { parse, stringify } from "yaml"
 import { writeFileAtomic } from "../util/fs.js"
 
 /** State file types that support platform isolation */
-export type StateFileType = "inbox" | "outbox" | "sent_ledger" | "processed"
+export type StateFileType = "inbox" | "outbox" | "sent_ledger" | "processed" | "dispatch_result"
 
 /** Configuration for platform isolation */
 export interface PlatformIsolationConfig {
   /** Enable platform-specific state files (default: true) */
   enabled: boolean
-  /** Directory for state files (default: cwd) */
+  /** Directory for state files (default: .social-cli/state under cwd) */
   stateDir?: string
+}
+
+/** Default directory for generated runtime state. */
+export const DEFAULT_STATE_DIR = ".social-cli/state"
+
+/**
+ * Resolve the state directory for generated runtime files.
+ *
+ * Defaulting to an ignored subdirectory keeps sync/dispatch output out of the
+ * repository root so agents do not accidentally stage inboxes, ledgers, or
+ * dispatch results.
+ */
+export function resolveStateDir(stateDir?: string): string {
+  return resolve(process.cwd(), stateDir ?? DEFAULT_STATE_DIR)
+}
+
+function ensureStateDir(stateDir?: string): string {
+  const baseDir = resolveStateDir(stateDir)
+  mkdirSync(baseDir, { recursive: true })
+  return baseDir
 }
 
 /**
@@ -39,7 +59,7 @@ export function getPlatformFilePath(
   platform: string,
   stateDir?: string
 ): string {
-  const baseDir = stateDir ?? process.cwd()
+  const baseDir = ensureStateDir(stateDir)
   const filename = `${fileType}-${platform}.yaml`
   return resolve(baseDir, filename)
 }
@@ -52,7 +72,7 @@ export function getSharedFilePath(
   fileType: StateFileType,
   stateDir?: string
 ): string {
-  const baseDir = stateDir ?? process.cwd()
+  const baseDir = ensureStateDir(stateDir)
   return resolve(baseDir, `${fileType}.yaml`)
 }
 
@@ -163,7 +183,7 @@ export function discoverPlatformFiles(
   fileType: StateFileType,
   stateDir?: string
 ): string[] {
-  const baseDir = stateDir ?? process.cwd()
+  const baseDir = resolveStateDir(stateDir)
   const platforms: string[] = []
   
   if (!existsSync(baseDir)) return platforms
@@ -291,7 +311,7 @@ export function archivePlatformOutbox(
   const outboxPath = getPlatformFilePath("outbox", platform, stateDir)
   if (!existsSync(outboxPath)) return null
   
-  const baseDir = stateDir ?? process.cwd()
+  const baseDir = ensureStateDir(stateDir)
   const archiveDir = resolve(baseDir, "outbox_archive")
   mkdirSync(archiveDir, { recursive: true })
   
@@ -303,4 +323,26 @@ export function archivePlatformOutbox(
   copyFileSync(outboxPath, archivedPath)
   
   return archivedPath
+}
+
+const ROOT_RUNTIME_PATTERNS = [
+  /^inbox(?:-[^.]+)?\.ya?ml$/,
+  /^outbox(?:-[^.]+)?\.ya?ml$/,
+  /^processed(?:-[^.]+)?\.ya?ml$/,
+  /^sent_ledger(?:-[^.]+)?\.ya?ml$/,
+  /^dispatch_result(?:-[^.]+)?\.ya?ml$/,
+  /^feed\.ya?ml$/,
+  /^[a-z]+_feed\.ya?ml$/,
+  /^[a-z]+_inbox\.ya?ml$/,
+]
+
+/**
+ * Find generated runtime files that still live in the repo root.
+ * Useful for doctor-style warnings after the default state dir moved.
+ */
+export function findRootRuntimeFiles(cwd = process.cwd()): string[] {
+  if (!existsSync(cwd)) return []
+  return readdirSync(cwd)
+    .filter((file) => ROOT_RUNTIME_PATTERNS.some((pattern) => pattern.test(file)))
+    .sort()
 }

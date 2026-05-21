@@ -68,6 +68,15 @@ program
     await dispatch({ file, dryRun: opts.dryRun, platform: opts.platform })
   })
 
+// doctor: Check local runtime-state hygiene
+program
+  .command("doctor")
+  .description("Check social-cli runtime state and local hygiene")
+  .action(async () => {
+    const { doctor } = await import("./commands/doctor.js")
+    await doctor()
+  })
+
 // check: Anything actionable? Exit code only.
 program
   .command("check")
