@@ -5,7 +5,6 @@ import { tmpdir } from "node:os"
 import {
   DEFAULT_STATE_DIR,
   defaultStateDir,
-  defaultStateId,
   findRootRuntimeFiles,
   migrateRootRuntimeFiles,
   getPlatformFilePath,
@@ -23,13 +22,6 @@ describe("state paths", () => {
     process.chdir(tempDir)
   })
 
-  function expectedStateId(): string {
-    return process.env.SOCIAL_CLI_STATE_ID
-      ?? process.env.SOCIAL_CLI_AGENT_ID
-      ?? process.env.AGENT_ID
-      ?? "default"
-  }
-
   afterEach(() => {
     process.chdir(originalCwd)
     process.env = { ...originalEnv }
@@ -37,11 +29,11 @@ describe("state paths", () => {
   })
 
   it("defaults generated state to an ignored subdirectory", () => {
-    expect(defaultStateDir()).toBe(join(DEFAULT_STATE_DIR, expectedStateId()))
-    expect(resolveStateDir()).toBe(join(tempDir, DEFAULT_STATE_DIR, expectedStateId()))
-    expect(getPlatformFilePath("inbox", "bsky")).toBe(join(tempDir, DEFAULT_STATE_DIR, expectedStateId(), "inbox-bsky.yaml"))
-    expect(getSharedFilePath("processed")).toBe(join(tempDir, DEFAULT_STATE_DIR, expectedStateId(), "processed.yaml"))
-    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR, expectedStateId()))).toBe(true)
+    expect(defaultStateDir()).toBe(process.env.AGENT_ID ? join(DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID) : DEFAULT_STATE_DIR)
+    expect(resolveStateDir()).toBe(process.env.AGENT_ID ? join(tempDir, DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID) : join(tempDir, DEFAULT_STATE_DIR))
+    expect(getPlatformFilePath("inbox", "bsky")).toBe(process.env.AGENT_ID ? join(tempDir, DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID, "inbox-bsky.yaml") : join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))
+    expect(getSharedFilePath("processed")).toBe(process.env.AGENT_ID ? join(tempDir, DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID, "processed.yaml") : join(tempDir, DEFAULT_STATE_DIR, "processed.yaml"))
+    expect(existsSync(process.env.AGENT_ID ? join(tempDir, DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID) : join(tempDir, DEFAULT_STATE_DIR))).toBe(true)
   })
 
   it("honors explicit stateDir", () => {
@@ -70,9 +62,9 @@ describe("state paths", () => {
 
     expect(migrated).toHaveLength(1)
     expect(migrated[0].from).toBe(join(tempDir, "inbox-bsky.yaml"))
-    expect(migrated[0].to).toBe(join(tempDir, DEFAULT_STATE_DIR, expectedStateId(), "inbox-bsky.yaml"))
+    expect(migrated[0].to).toBe(process.env.AGENT_ID ? join(tempDir, DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID, "inbox-bsky.yaml") : join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))
     expect(existsSync(join(tempDir, "inbox-bsky.yaml"))).toBe(false)
-    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR, expectedStateId(), "inbox-bsky.yaml"))).toBe(true)
+    expect(existsSync(process.env.AGENT_ID ? join(tempDir, DEFAULT_STATE_DIR, "agents", process.env.AGENT_ID, "inbox-bsky.yaml") : join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))).toBe(true)
     expect(existsSync(join(tempDir, "notes.md"))).toBe(true)
   })
 
@@ -87,21 +79,20 @@ describe("state paths", () => {
   })
 
 
-  it("supports generic non-Letta state IDs", () => {
-    delete process.env.AGENT_ID
-    process.env.SOCIAL_CLI_STATE_ID = "claude/reviewer 1"
+  it("supports explicit state dir env override", () => {
+    process.env.SOCIAL_CLI_STATE_DIR = "custom-state"
 
-    expect(defaultStateId()).toBe("claude/reviewer 1")
-    expect(defaultStateDir()).toBe(join(DEFAULT_STATE_DIR, "claude-reviewer-1"))
-    expect(getPlatformFilePath("inbox", "x")).toBe(join(tempDir, DEFAULT_STATE_DIR, "claude-reviewer-1", "inbox-x.yaml"))
+    expect(defaultStateDir()).toBe("custom-state")
+    expect(resolveStateDir()).toBe(join(tempDir, "custom-state"))
+    expect(getPlatformFilePath("inbox", "x")).toBe(join(tempDir, "custom-state", "inbox-x.yaml"))
   })
 
-  it("falls back to SOCIAL_CLI_AGENT_ID before AGENT_ID", () => {
-    process.env.AGENT_ID = "letta-agent"
-    process.env.SOCIAL_CLI_AGENT_ID = "other-agent"
+  it("falls back to shared state when no agent env is available", () => {
+    delete process.env.AGENT_ID
+    delete process.env.SOCIAL_CLI_STATE_DIR
 
-    expect(defaultStateId()).toBe("other-agent")
-    expect(defaultStateDir()).toBe(join(DEFAULT_STATE_DIR, "other-agent"))
+    expect(defaultStateDir()).toBe(DEFAULT_STATE_DIR)
+    expect(resolveStateDir()).toBe(join(tempDir, DEFAULT_STATE_DIR))
   })
 
 })

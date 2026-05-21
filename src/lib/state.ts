@@ -40,15 +40,10 @@ function sanitizeStateSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 120) || "default"
 }
 
-export function defaultStateId(): string {
-  return process.env.SOCIAL_CLI_STATE_ID
-    ?? process.env.SOCIAL_CLI_AGENT_ID
-    ?? process.env.AGENT_ID
-    ?? "default"
-}
-
 export function defaultStateDir(): string {
-  return join(DEFAULT_STATE_DIR, sanitizeStateSegment(defaultStateId()))
+  if (process.env.SOCIAL_CLI_STATE_DIR) return process.env.SOCIAL_CLI_STATE_DIR
+  if (process.env.AGENT_ID) return join(DEFAULT_STATE_DIR, "agents", sanitizeStateSegment(process.env.AGENT_ID))
+  return DEFAULT_STATE_DIR
 }
 
 export function resolveStateDir(stateDir?: string): string {
