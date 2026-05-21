@@ -494,15 +494,24 @@ semble
   })
 
 // blog: Publish long-form content to GreenGale
+// Note: Prefer `publish` (site.standard.document) for new long-form work — it
+// uses a shared-namespace lexicon, renders on Leaflet, and any renderer can
+// pick it up. `blog` writes `app.greengale.document`, a single-vendor record.
+// Use `blog` only when you specifically want a post on GreenGale.
 program
   .command("blog")
-  .description("Publish long-form content to GreenGale (app.greengale.document)")
+  .description("[Legacy: prefer `publish`] Publish long-form content to GreenGale (app.greengale.document, single-vendor)")
   .option("-t, --title <title>", "Post title")
   .option("-s, --slug <slug>", "URL slug (auto-generated from title if not provided)")
   .option("--subtitle <subtitle>", "Optional subtitle")
   .option("-f, --file <path>", "Markdown file to publish (frontmatter supported)")
   .option("-c, --content <text>", "Raw content (use with --title)")
   .action(async (opts) => {
+    console.error(
+      "[blog] Note: writes to GreenGale (`app.greengale.document`, single-vendor lexicon). " +
+        "For documents on shared standards, prefer `social-cli publish` " +
+        "(`site.standard.document`, renders on Leaflet and any compatible renderer).",
+    )
     const { blog } = await import("./commands/blog.js")
     await blog({
       title: opts.title,
