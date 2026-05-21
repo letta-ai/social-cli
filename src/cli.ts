@@ -72,9 +72,10 @@ program
 program
   .command("doctor")
   .description("Check social-cli runtime state and local hygiene")
-  .action(async () => {
+  .option("--migrate", "Move legacy root-level runtime files into the state directory")
+  .action(async (opts) => {
     const { doctor } = await import("./commands/doctor.js")
-    await doctor()
+    await doctor({ migrate: opts.migrate })
   })
 
 // check: Anything actionable? Exit code only.

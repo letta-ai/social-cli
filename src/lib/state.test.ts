@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import {
   DEFAULT_STATE_DIR,
   findRootRuntimeFiles,
+  migrateRootRuntimeFiles,
   getPlatformFilePath,
   getSharedFilePath,
   resolveStateDir,
@@ -48,4 +49,29 @@ describe("state paths", () => {
       "sent_ledger.yaml",
     ])
   })
+
+  it("migrates root runtime files into the state directory without overwriting", () => {
+    writeFileSync(join(tempDir, "inbox-bsky.yaml"), "notifications: []\n")
+    writeFileSync(join(tempDir, "notes.md"), "not runtime\n")
+
+    const migrated = migrateRootRuntimeFiles()
+
+    expect(migrated).toHaveLength(1)
+    expect(migrated[0].from).toBe(join(tempDir, "inbox-bsky.yaml"))
+    expect(migrated[0].to).toBe(join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))
+    expect(existsSync(join(tempDir, "inbox-bsky.yaml"))).toBe(false)
+    expect(existsSync(join(tempDir, DEFAULT_STATE_DIR, "inbox-bsky.yaml"))).toBe(true)
+    expect(existsSync(join(tempDir, "notes.md"))).toBe(true)
+  })
+
+  it("does not overwrite existing files during migration", () => {
+    const stateFile = getPlatformFilePath("inbox", "bsky")
+    writeFileSync(join(tempDir, "inbox-bsky.yaml"), "root: true\n")
+    writeFileSync(stateFile, "state: true\n")
+
+    expect(migrateRootRuntimeFiles()).toEqual([])
+    expect(existsSync(join(tempDir, "inbox-bsky.yaml"))).toBe(true)
+    expect(existsSync(stateFile)).toBe(true)
+  })
+
 })

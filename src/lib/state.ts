@@ -10,7 +10,7 @@
  * replay protection and pruning operate unambiguously within platform partitions.
  */
 
-import { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync, renameSync } from "node:fs"
 import { resolve, join } from "node:path"
 import { parse, stringify } from "yaml"
 import { writeFileAtomic } from "../util/fs.js"
@@ -345,4 +345,31 @@ export function findRootRuntimeFiles(cwd = process.cwd()): string[] {
   return readdirSync(cwd)
     .filter((file) => ROOT_RUNTIME_PATTERNS.some((pattern) => pattern.test(file)))
     .sort()
+}
+
+
+export interface RuntimeFileMigration {
+  from: string
+  to: string
+}
+
+/**
+ * Move legacy root-level runtime files into the configured state directory.
+ *
+ * Existing destination files are never overwritten; those source files remain
+ * in place so the user can inspect/merge them manually.
+ */
+export function migrateRootRuntimeFiles(cwd = process.cwd(), stateDir?: string): RuntimeFileMigration[] {
+  const targetDir = ensureStateDir(stateDir)
+  const migrated: RuntimeFileMigration[] = []
+
+  for (const file of findRootRuntimeFiles(cwd)) {
+    const from = resolve(cwd, file)
+    const to = resolve(targetDir, file)
+    if (existsSync(to)) continue
+    renameSync(from, to)
+    migrated.push({ from, to })
+  }
+
+  return migrated
 }

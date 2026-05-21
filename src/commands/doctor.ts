@@ -1,13 +1,27 @@
 import { loadConfig } from "../config.js"
-import { findRootRuntimeFiles, resolveStateDir } from "../lib/state.js"
+import { findRootRuntimeFiles, migrateRootRuntimeFiles, resolveStateDir } from "../lib/state.js"
 
-export async function doctor(): Promise<void> {
+export async function doctor(opts: { migrate?: boolean } = {}): Promise<void> {
   const config = loadConfig()
-  const stateDir = resolveStateDir(config.state?.stateDir)
-  const rootRuntimeFiles = findRootRuntimeFiles()
+  const configuredStateDir = config.state?.stateDir
+  const stateDir = resolveStateDir(configuredStateDir)
 
   console.log("social-cli doctor")
   console.log(`stateDir: ${stateDir}`)
+
+  if (opts.migrate) {
+    const migrated = migrateRootRuntimeFiles(process.cwd(), configuredStateDir)
+    if (migrated.length === 0) {
+      console.log("migration: no root-level runtime files moved")
+    } else {
+      console.log(`migration: moved ${migrated.length} runtime file(s) into stateDir`)
+      for (const file of migrated) {
+        console.log(`  - ${file.from} → ${file.to}`)
+      }
+    }
+  }
+
+  const rootRuntimeFiles = findRootRuntimeFiles()
 
   if (rootRuntimeFiles.length === 0) {
     console.log("runtime files: ok (none found in repo root)")
@@ -18,6 +32,7 @@ export async function doctor(): Promise<void> {
     }
     console.log("")
     console.log("These files are generated state. New sync/dispatch output goes under .social-cli/state/ by default.")
-    console.log("Move or remove root-level runtime files after confirming they are no longer needed.")
+    console.log("Run `social-cli doctor --migrate` to move root-level runtime files into the state directory.")
+    console.log("Files are not overwritten if a destination already exists; inspect remaining files manually.")
   }
 }
