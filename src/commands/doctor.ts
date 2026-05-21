@@ -1,5 +1,5 @@
 import { loadConfig } from "../config.js"
-import { findRootRuntimeFiles, migrateRootRuntimeFiles, resolveStateDir } from "../lib/state.js"
+import { defaultStateId, findRootRuntimeFiles, migrateRootRuntimeFiles, resolveStateDir } from "../lib/state.js"
 
 export async function doctor(opts: { migrate?: boolean } = {}): Promise<void> {
   const config = loadConfig()
@@ -8,6 +8,10 @@ export async function doctor(opts: { migrate?: boolean } = {}): Promise<void> {
 
   console.log("social-cli doctor")
   console.log(`stateDir: ${stateDir}`)
+  if (!configuredStateDir) {
+    console.log(`stateId: ${defaultStateId()}`)
+    console.log("Set SOCIAL_CLI_STATE_ID (or state.stateDir) to isolate multiple agents sharing one checkout.")
+  }
 
   if (opts.migrate) {
     const migrated = migrateRootRuntimeFiles(process.cwd(), configuredStateDir)
@@ -31,7 +35,7 @@ export async function doctor(opts: { migrate?: boolean } = {}): Promise<void> {
       console.log(`  - ${file}`)
     }
     console.log("")
-    console.log("These files are generated state. New sync/dispatch output goes under .social-cli/state/ by default.")
+    console.log("These files are generated state. New sync/dispatch output goes under .social-cli/state/<state-id>/ by default.")
     console.log("Run `social-cli doctor --migrate` to move root-level runtime files into the state directory.")
     console.log("Files are not overwritten if a destination already exists; inspect remaining files manually.")
   }
