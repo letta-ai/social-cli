@@ -10,6 +10,7 @@ export interface OutboxAction {
     platform: string
     id: string
     text: string
+    media?: string[]
     notificationId?: string
     idempotencyKey?: string
   }
