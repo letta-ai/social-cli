@@ -61,6 +61,43 @@ LEAFLET_PUBLICATION_URI=at://did:plc:.../site.standard.publication/...
 
 Optional dispatch hooks are also configured in `config.yaml`; see [Dispatch hooks](#dispatch-hooks).
 
+
+## Runtime state
+
+`social-cli` writes generated runtime state under a gitignored state directory, not the repo root. By default:
+
+- Letta agents (`AGENT_ID` set): `.social-cli/state/agents/<AGENT_ID>/`
+- Other users/agents: `.social-cli/state/`
+
+Override this with either:
+
+```bash
+SOCIAL_CLI_STATE_DIR=/path/to/state
+```
+
+or in `config.yaml`:
+
+```yaml
+state:
+  stateDir: /path/to/state
+```
+
+Use an explicit state directory when multiple non-Letta agents share the same checkout. Otherwise they will share `.social-cli/state/`.
+
+Generated files include `inbox-{platform}.yaml`, `outbox-{platform}.yaml`, `processed-{platform}.yaml`, `sent_ledger-{platform}.yaml`, `dispatch_result-{platform}.yaml`, and `outbox_archive/`. Run:
+
+```bash
+social-cli doctor
+```
+
+to see the active state directory and detect old root-level runtime files. Run:
+
+```bash
+social-cli doctor --migrate
+```
+
+to move legacy root-level runtime files into the active state directory. Existing destination files are not overwritten.
+
 ## How it works
 
 social-cli has two modes: an **agent loop** for automated notification handling, and **quick commands** for direct actions.
@@ -68,13 +105,14 @@ social-cli has two modes: an **agent loop** for automated notification handling,
 ### Agent loop
 
 ```bash
-social-cli sync -p bsky -p x          # pull notifications → inbox.yaml
+social-cli doctor                       # shows active state directory
+social-cli sync -p bsky -p x          # pull notifications → stateDir/inbox-{platform}.yaml
 social-cli check || exit 0            # anything actionable? no → bail
-# agent reads inbox.yaml, decides, writes outbox.yaml
+# agent reads stateDir/inbox-{platform}.yaml, decides, writes stateDir/outbox-{platform}.yaml
 social-cli dispatch                    # execute decisions, mark processed
 ```
 
-The agent loop handles bookkeeping — marking notifications as processed, deduplicating, archiving outboxes. Agents read `inbox.yaml`, write decisions to `outbox.yaml`, and `dispatch` executes them.
+The agent loop handles bookkeeping — marking notifications as processed, deduplicating, archiving outboxes. Agents read `inbox-{platform}.yaml`, write decisions to `outbox-{platform}.yaml`, and `dispatch` executes them. These files live under the active state directory shown by `social-cli doctor`.
 
 ### Quick commands
 
@@ -111,7 +149,7 @@ All read commands output YAML to stdout (except `feed` which defaults to a file)
 
 ## Outbox format
 
-Agents write decisions to `outbox.yaml` for dispatch:
+Agents write decisions to `outbox-{platform}.yaml` in the active state directory for dispatch:
 
 ```yaml
 dispatch:
@@ -342,7 +380,7 @@ Bundled agent-facing guidance and workflows under `skills/`:
 - **Atomic writes**: All YAML output uses tmp+rename. No half-written files on crash.
 - **Char validation**: Quick commands reject oversized text before hitting the API.
 - **Inbox cap**: `--max-items` (default 200) truncates oldest entries to prevent unbounded growth.
-- **Thread resume**: If a thread fails mid-chain, `dispatch_result.yaml` includes `resumeFrom` with the index and remaining posts.
+- **Thread resume**: If a thread fails mid-chain, `dispatch_result-{platform}.yaml` includes `resumeFrom` with the index and remaining posts.
 - **Continue-on-failure**: Dispatch processes all actions even if some fail. Exit code 2 on partial failure.
 - **Replay detection**: Dispatch prevents posting the same reply twice to the same target.
 

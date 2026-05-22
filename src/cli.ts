@@ -20,14 +20,14 @@ const program = new Command()
   .description("Agent-optimized social media CLI")
   .version("0.1.0")
 
-// sync: Fetch notifications → inbox.yaml
+// sync: Fetch notifications → stateDir/inbox-{platform}.yaml
 program
   .command("sync")
-  .description("Fetch notifications from platforms → inbox.yaml")
+  .description("Fetch notifications from platforms → stateDir/inbox-{platform}.yaml")
   .option("-p, --platform <platforms...>", "Platforms to sync (default: all)")
   .option("--unread-only", "Only fetch unread notifications", true)
   .option("-n, --limit <number>", "Max notifications per platform", "50")
-  .option("-o, --output <file>", "Output file", "inbox.yaml")
+  .option("-o, --output <file>", "Legacy shared output file", "inbox.yaml")
   .option("--max-items <number>", "Max inbox items before truncating oldest", "200")
   .option("--users-dir <path>", "Directory of user memory files for context enrichment")
   .option("--auto-create-users", "Create missing user memory files during sync")
