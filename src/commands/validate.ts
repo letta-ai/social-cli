@@ -121,6 +121,12 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!r.platform) errors.push(`${prefix}: reply missing 'platform'`)
       if (!r.id) errors.push(`${prefix}: reply missing 'id'`)
       if (!r.text) errors.push(`${prefix}: reply missing 'text'`)
+      if (r.media !== undefined && !Array.isArray(r.media)) {
+        errors.push(`${prefix}: reply 'media' must be an array of file paths`)
+      }
+      if (Array.isArray(r.media) && r.media.some((m) => typeof m !== "string" || m.trim() === "")) {
+        errors.push(`${prefix}: reply 'media' entries must be non-empty file paths`)
+      }
       if (r.platform && r.text) {
         const limit = PLATFORM_LIMITS[r.platform]
         if (limit && r.text.length > limit.chars) {

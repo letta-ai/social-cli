@@ -417,7 +417,9 @@ async function dispatchPlatform(
       const r = action.reply
       try {
         const plat = await getPlatformAsync(r.platform)
-        const res = await plat.reply(r.id, r.text)
+        const replyOpts: PostOpts = {}
+        if (r.media && r.media.length > 0) replyOpts.media = r.media
+        const res = await plat.reply(r.id, r.text, replyOpts)
         results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
         successfulReplyCount += 1
 
