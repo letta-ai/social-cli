@@ -12,7 +12,7 @@
  * Continue on failure — report per-action results.
  */
 
-import { readFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs"
+import { readFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
 import { resolve, join, basename } from "node:path"
 import { createHash } from "node:crypto"
 import { parse, stringify } from "yaml"
@@ -20,7 +20,7 @@ import { getPlatformAsync } from "../platforms/index.js"
 import type { PostOpts } from "../platforms/types.js"
 import { loadConfig } from "../config.js"
 import { validateOutbox, type OutboxFile, type OutboxAction } from "./validate.js"
-import { writeFileAtomic } from "../util/fs.js"
+import { writeFileAtomic, moveFile } from "../util/fs.js"
 import { runHooks } from "../hooks.js"
 import type { HookContext, HooksConfig } from "../types/hooks.js"
 import {
@@ -822,7 +822,12 @@ async function dispatchPlatform(
   mkdirSync(archiveDir, { recursive: true })
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
   const archivedOutbox = join(archiveDir, `${timestamp}_outbox-${platform}.yaml`)
-  renameSync(outboxPath, archivedOutbox)
+  // moveFile (not renameSync) because the outbox source and the
+  // outbox_archive/ destination may live on different filesystems —
+  // e.g., in Docker the state dir is on an overlay volume while
+  // process.cwd() resolves to the bind-mounted host dir. renameSync
+  // throws EXDEV in that case; moveFile falls back to copy + unlink.
+  moveFile(outboxPath, archivedOutbox)
 
   if (sentEntriesToAppend.length > 0) {
     sentLedger.push(...sentEntriesToAppend)
