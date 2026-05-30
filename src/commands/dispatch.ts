@@ -298,6 +298,7 @@ async function dispatchPlatform(
       else if (action.highlight) actionPlatform = action.highlight.platform
       else if (action.follow) actionPlatform = action.follow.platform
       else if (action.like) actionPlatform = action.like.platform
+      else if (action.post?.platform) actionPlatform = action.post.platform
       else if (action.post?.platforms) {
         const platforms = action.post.platforms
         actionPlatform = Array.isArray(platforms) ? platforms[0] : Object.keys(platforms)[0]
@@ -372,7 +373,9 @@ async function dispatchPlatform(
           ? action.post.platforms
           : action.post.platforms && typeof action.post.platforms === "object"
             ? Object.keys(action.post.platforms)
-            : ["bsky"]
+            : action.post.platform
+              ? [action.post.platform]
+              : ["bsky"]
         for (const plat of platforms) {
           const key = postKey(plat, action.post.text, action.post.idempotencyKey, action.post.quoteId, action.post.replyTo)
           if (sentKeys.has(key)) {
@@ -568,6 +571,9 @@ async function dispatchPlatform(
         for (const plat of p.platforms) {
           targets.push({ platform: plat, text: p.text })
         }
+      } else if (p.text && p.platform) {
+        // Same text, one explicit platform
+        targets.push({ platform: p.platform, text: p.text })
       } else if (p.text) {
         // Single platform not specified — default to bsky
         targets.push({ platform: "bsky", text: p.text })
