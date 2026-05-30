@@ -17,3 +17,12 @@ package-lock.json
 outbox_archive/
 sent_ledger.yaml
 attachments/
+# Generated social-cli runtime state
+.social-cli/state/
+inbox*.yaml
+outbox*.yaml
+processed*.yaml
+sent_ledger*.yaml
+dispatch_result*.yaml
+*_feed.yaml
+*_inbox.yaml

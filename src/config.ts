@@ -30,7 +30,7 @@ export interface DispatchConfig {
 export interface StateConfig {
   /** Enable platform-specific state files (default: true) */
   platformIsolation?: boolean
-  /** Directory for state files (default: cwd) */
+  /** Directory for generated runtime state files (default: .social-cli/state under cwd) */
   stateDir?: string
 }
 

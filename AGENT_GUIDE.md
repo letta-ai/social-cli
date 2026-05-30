@@ -26,18 +26,52 @@ In the X developer portal, these map to the **OAuth 1.0 Keys** section:
 
 If a command fails with an auth error, tell your operator.
 
+
+## Runtime State: read this first
+
+Generated runtime files live under a state directory, not necessarily the repo root. Before reading or writing inbox/outbox files, run:
+
+```bash
+social-cli doctor
+```
+
+Use the printed `stateDir`. The normal files are:
+
+- `inbox-bsky.yaml`, `inbox-x.yaml` — pending notifications
+- `outbox-bsky.yaml`, `outbox-x.yaml` — your dispatch decisions
+- `dispatch_result-bsky.yaml`, `dispatch_result-x.yaml` — results
+- `processed-*.yaml`, `sent_ledger-*.yaml`, `outbox_archive/` — bookkeeping
+
+Default state directory:
+
+- If `AGENT_ID` is set: `.social-cli/state/agents/<AGENT_ID>/`
+- Otherwise: `.social-cli/state/`
+
+If multiple non-Letta agents share a checkout, set `SOCIAL_CLI_STATE_DIR` or `state.stateDir` in `config.yaml` so they do not share inboxes and ledgers.
+
+If `doctor` reports root-level runtime files, run:
+
+```bash
+social-cli doctor --migrate
+```
+
+This moves legacy generated files into the active state directory without overwriting existing files.
+
 ## Core Loop
 
 Your primary workflow is a three-step loop:
 
 ```bash
+# 0. Locate runtime state
+social-cli doctor
+
 # 1. Pull notifications
 social-cli sync --users-dir /path/to/your/users/
 
 # 2. Check if anything needs attention
 social-cli check || exit 0
 
-# 3. Read inbox.yaml, decide what to do, write outbox.yaml, then:
+# 3. Read stateDir/inbox-{platform}.yaml, decide what to do, write stateDir/outbox-{platform}.yaml, then:
 social-cli dispatch
 ```
 
@@ -47,9 +81,9 @@ social-cli dispatch
 social-cli sync --platform bsky --platform x --users-dir /path/to/users/
 ```
 
-This writes `inbox.yaml` as a local pending-work queue. Sync merges in unseen notifications and leaves existing pending items in place until they are explicitly handled by dispatch. It is not an append-only history log. If `--users-dir` is provided, each notification is enriched with a `userContext` field containing your memory file for that author (if one exists). Use this context to personalize your responses.
+This writes `inbox-{platform}.yaml` under the active state directory as a local pending-work queue. Sync merges in unseen notifications and leaves existing pending items in place until they are explicitly handled by dispatch. It is not an append-only history log. If `--users-dir` is provided, each notification is enriched with a `userContext` field containing your memory file for that author (if one exists). Use this context to personalize your responses.
 
-**Output format** (`inbox.yaml`):
+**Output format** (`stateDir/inbox-{platform}.yaml`):
 ```yaml
 notifications:
   - id: "at://did:plc:xxx/app.bsky.feed.post/abc"
@@ -80,7 +114,7 @@ Options:
 - `--users-dir <path>` — directory of user `.md` files for context enrichment
 - `-n, --limit <number>` — max notifications per platform (default: 50)
 - `--max-items <number>` — cap total inbox size (default: 200, oldest dropped)
-- `-o, --output <file>` — output file (default: `inbox.yaml`)
+- `-o, --output <file>` — legacy shared output file when platform isolation is disabled
 
 ### Step 2: Check
 
@@ -99,7 +133,7 @@ No stdout. Decision is purely in the exit code.
 
 ### Step 3: Decide and Dispatch
 
-Read `inbox.yaml`, decide what to do, and write `outbox.yaml`:
+Read `stateDir/inbox-{platform}.yaml`, decide what to do, and write `stateDir/outbox-{platform}.yaml`:
 
 ```yaml
 dispatch:
@@ -156,14 +190,14 @@ social-cli dispatch
 **What happens:**
 1. Validates all actions (char limits, required fields, platform support).
 2. Executes each action. Continues on failure — one bad action doesn't block the rest.
-3. Writes `dispatch_result.yaml` with per-action results.
-4. Archives `outbox.yaml` to `outbox_archive/`.
-5. Removes processed notifications from `inbox.yaml`, keeping the file aligned to pending work only.
+3. Writes `dispatch_result-{platform}.yaml` with per-action results.
+4. Archives `outbox-{platform}.yaml` to `outbox_archive/`.
+5. Removes processed notifications from `inbox-{platform}.yaml`, keeping the file aligned to pending work only.
 
 **Exit codes:**
 - 0 = all actions succeeded
 - 1 = validation failed (nothing was dispatched)
-- 2 = partial failure (some actions failed, check `dispatch_result.yaml`)
+- 2 = partial failure (some actions failed, check `dispatch_result-{platform}.yaml`)
 
 **Dry run** — validate without posting:
 ```bash
@@ -294,18 +328,18 @@ Name your files by ID for stability (handles change), or by handle for readabili
 
 - All API calls retry 3 times with exponential backoff on transient errors (429, 5xx, network failures).
 - Bluesky sessions auto-refresh on token expiry.
-- Dispatch continues through failures — check `dispatch_result.yaml` for what succeeded.
-- If a thread fails mid-chain, `dispatch_result.yaml` includes `resumeFrom` with the index and remaining posts so you can retry from where it stopped.
+- Dispatch continues through failures — check `dispatch_result-{platform}.yaml` for what succeeded.
+- If a thread fails mid-chain, `dispatch_result-{platform}.yaml` includes `resumeFrom` with the index and remaining posts so you can retry from where it stopped.
 
 ## Critical: Dispatch vs Quick Commands
 
 There are two ways to post: the **dispatch pipeline** and **quick commands**. They are not interchangeable.
 
-**Always use dispatch when replying to inbox notifications.** The dispatch pipeline marks notifications as processed and removes them from `inbox.yaml`. Quick commands (`reply`, `post`) do not. If you use `reply` directly on an inbox item, the notification stays in the inbox and will reappear next sync — you'll waste time re-investigating something you already handled.
+**Always use dispatch when replying to inbox notifications.** The dispatch pipeline marks notifications as processed and removes them from `inbox-{platform}.yaml`. Quick commands (`reply`, `post`) do not. If you use `reply` directly on an inbox item, the notification stays in the inbox and will reappear next sync — you'll waste time re-investigating something you already handled.
 
 ```
 # CORRECT — replying to a notification
-# Write outbox.yaml with a reply action, then:
+# Write stateDir/outbox-{platform}.yaml with a reply action, then:
 social-cli dispatch
 
 # WRONG — replying to a notification
@@ -333,9 +367,9 @@ When processing inbox notifications:
 
 | Command | Description | Output |
 |---------|-------------|--------|
-| `sync` | Pull notifications | `inbox.yaml` |
+| `sync` | Pull notifications | `stateDir/inbox-{platform}.yaml` |
 | `check` | Anything actionable? | exit code only |
-| `dispatch` | Execute outbox | `dispatch_result.yaml` |
+| `dispatch` | Execute outbox | `stateDir/dispatch_result-{platform}.yaml` |
 | `post` | Single post | stdout (post ID) |
 | `reply` | Reply to post | stdout (post ID) |
 | `thread` | Post thread | stdout (post IDs) |

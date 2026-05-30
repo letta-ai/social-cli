@@ -28,6 +28,7 @@ import {
   migrateSharedToPlatformSpecific,
   discoverPlatformFiles,
   readPlatformFile,
+  rootRuntimeWarning,
 } from "../lib/state.js"
 
 interface InboxFile {
@@ -274,6 +275,8 @@ export async function sync(opts: {
   const allowedPlatforms = config.sync?.allowedPlatforms
   const platformIsolation = config.state?.platformIsolation ?? true
   const stateDir = config.state?.stateDir
+  const runtimeWarning = rootRuntimeWarning(stateDir)
+  if (runtimeWarning) console.warn(runtimeWarning)
 
   // Determine target platforms
   let targetPlatforms: string[]

@@ -33,6 +33,8 @@ import {
   readPlatformFile,
   writePlatformFile,
   readSharedFile,
+  resolveStateDir,
+  rootRuntimeWarning,
 } from "../lib/state.js"
 
 /**
@@ -230,6 +232,8 @@ async function dispatchPlatform(
   const platformIsolation = config.state?.platformIsolation ?? true
   const stateDir = config.state?.stateDir
   const allowedPlatforms = config.dispatch?.allowedPlatforms
+  const runtimeWarning = rootRuntimeWarning(stateDir)
+  if (runtimeWarning) console.warn(runtimeWarning)
 
   // Validate platform is in allowed set
   if (allowedPlatforms && allowedPlatforms.length > 0) {
@@ -818,7 +822,7 @@ async function dispatchPlatform(
   }
 
   // Archive outbox
-  const archiveDir = resolve(process.cwd(), "outbox_archive")
+  const archiveDir = resolve(resolveStateDir(stateDir), "outbox_archive")
   mkdirSync(archiveDir, { recursive: true })
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
   const archivedOutbox = join(archiveDir, `${timestamp}_outbox-${platform}.yaml`)
@@ -879,7 +883,7 @@ async function dispatchPlatform(
   }
 
   // Write results
-  const resultPath = resolve(process.cwd(), `dispatch_result-${platform}.yaml`)
+  const resultPath = getPlatformFilePath("dispatch_result", platform, stateDir)
   writeFileAtomic(resultPath, stringify({ results, archivedOutbox, inboxIdsRemoved, provenance }, { lineWidth: 120 }))
 
   // Persist processed set for future cycles
