@@ -20,19 +20,21 @@ const program = new Command()
   .description("Agent-optimized social media CLI")
   .version("0.1.0")
 
-// sync: Fetch notifications → inbox.yaml
+// sync: Fetch notifications → stateDir/inbox-{platform}.yaml
 program
   .command("sync")
-  .description("Fetch notifications from platforms → inbox.yaml")
+  .description("Fetch notifications from platforms → stateDir/inbox-{platform}.yaml")
   .option("-p, --platform <platforms...>", "Platforms to sync (default: all)")
   .option("--unread-only", "Only fetch unread notifications", true)
   .option("-n, --limit <number>", "Max notifications per platform", "50")
-  .option("-o, --output <file>", "Output file", "inbox.yaml")
+  .option("-o, --output <file>", "Legacy shared output file", "inbox.yaml")
   .option("--max-items <number>", "Max inbox items before truncating oldest", "200")
   .option("--users-dir <path>", "Directory of user memory files for context enrichment")
   .option("--auto-create-users", "Create missing user memory files during sync")
   .option("--reset", "Clear cursors and re-fetch all notifications from scratch")
   .option("--clear", "Clear both cursors and the local inbox for a fully fresh start")
+  .option("--media", "Download attached images/videos from notifications to attachments/{platform}/")
+  .option("--attachments-dir <path>", "Override attachments root directory (default: ./attachments)")
   .action(async (opts) => {
     const [{ sync }, { loadConfig }] = await Promise.all([
       import("./commands/sync.js"),
@@ -49,6 +51,8 @@ program
       autoCreateUsers: opts.autoCreateUsers || config.sync?.autoCreateUsers,
       reset: opts.reset,
       clear: opts.clear,
+      media: opts.media,
+      attachmentsDir: opts.attachmentsDir,
     })
   })
 
@@ -62,6 +66,16 @@ program
   .action(async (file, opts) => {
     const { dispatch } = await import("./commands/dispatch.js")
     await dispatch({ file, dryRun: opts.dryRun, platform: opts.platform })
+  })
+
+// doctor: Check local runtime-state hygiene
+program
+  .command("doctor")
+  .description("Check social-cli runtime state and local hygiene")
+  .option("--migrate", "Move legacy root-level runtime files into the state directory")
+  .action(async (opts) => {
+    const { doctor } = await import("./commands/doctor.js")
+    await doctor({ migrate: opts.migrate })
   })
 
 // check: Anything actionable? Exit code only.
@@ -125,6 +139,9 @@ program
     if (opts.replyTo) {
       const result = await platform.reply(opts.replyTo, text, { quoteId: opts.quote, media: opts.media })
       console.log(`Posted (reply): ${result.id}`)
+      const { pruneInboxByPostId } = await import("./lib/state.js")
+      const pruned = pruneInboxByPostId(opts.platform, [opts.replyTo])
+      if (pruned.length > 0) console.log(`Pruned ${pruned.length} inbox notification(s) matching reply target`)
     } else {
       const result = await platform.post(text, { quoteId: opts.quote, media: opts.media })
       console.log(`Posted: ${result.id}`)
@@ -146,6 +163,9 @@ program
     const platform = await getPlatformAsync(opts.platform)
     const result = await platform.reply(opts.id, text, { media: opts.media })
     console.log(`Replied: ${result.id}`)
+    const { pruneInboxByPostId } = await import("./lib/state.js")
+    const pruned = pruneInboxByPostId(opts.platform, [opts.id])
+    if (pruned.length > 0) console.log(`Pruned ${pruned.length} inbox notification(s) matching reply target`)
   })
 
 // thread: Post a thread
@@ -155,32 +175,11 @@ program
   .argument("<posts...>", "Thread posts (each argument is one post)")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("-m, --media <paths...>", "Media file paths to attach to first post")
-  .option("--card", "Auto-generate a branded header card for the first post")
-  .option("--card-title <title>", "Title for the card (defaults to first post text)")
-  .option("--card-subtitle <subtitle>", "Subtitle for the card")
-  .option("--card-pattern <pattern>", "Card pattern: ripple, angular, orbital, grid", "ripple")
   .action(async (posts, opts) => {
     const { validateTexts } = await import("./util/validate.js")
     validateTexts(opts.platform, posts)
 
-    let mediaPaths: string[] = opts.media ?? []
-
-    // Auto-generate a card if --card is set
-    if (opts.card) {
-      const { execSync } = await import("node:child_process")
-      const { resolve, dirname } = await import("node:path")
-      const { fileURLToPath } = await import("node:url")
-      const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "skills", "thread-cards")
-      const tmpCard = `/tmp/thread-card-${Date.now()}.png`
-      const title = opts.cardTitle ?? posts[0].slice(0, 80)
-      const subtitle = opts.cardSubtitle ?? ""
-      const pattern = opts.cardPattern ?? "ripple"
-      execSync(
-        `npx tsx "${scriptDir}/generate-card.ts" --title "${title.replace(/"/g, '\\"')}" --subtitle "${subtitle.replace(/"/g, '\\"')}" --pattern ${pattern} --output "${tmpCard}"`,
-        { stdio: "pipe" },
-      )
-      mediaPaths = [tmpCard, ...mediaPaths]
-    }
+    const mediaPaths: string[] = opts.media ?? []
 
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
@@ -443,16 +442,86 @@ program
     console.log("Profile updated.")
   })
 
+// semble: Knowledge network commands
+const semble = program
+  .command("semble")
+  .description("Semble knowledge network — collections, cards, sources")
+
+semble
+  .command("list")
+  .description("List your Semble collections")
+  .option("-n, --limit <number>", "Max results", "50")
+  .option("--cursor <cursor>", "Pagination cursor")
+  .action(async (opts) => {
+    const { listCollections } = await import("./commands/semble.js")
+    await listCollections({ limit: parseInt(opts.limit), cursor: opts.cursor })
+  })
+
+semble
+  .command("get")
+  .description("Get a collection's details and cards")
+  .argument("<collection>", "Collection rkey or AT-URI")
+  .action(async (collection) => {
+    const { getCollection } = await import("./commands/semble.js")
+    await getCollection(collection)
+  })
+
+semble
+  .command("create")
+  .description("Create a new collection")
+  .argument("<name>", "Collection name")
+  .option("-d, --description <text>", "Collection description")
+  .action(async (name, opts) => {
+    const { createCollection } = await import("./commands/semble.js")
+    await createCollection({ name, description: opts.description })
+  })
+
+semble
+  .command("add-card")
+  .description("Create a card and optionally add to a collection")
+  .argument("<url>", "URL for the card")
+  .option("--note <text>", "Note explaining the card")
+  .option("-c, --collection <rkey>", "Collection rkey to add the card to")
+  .action(async (url, opts) => {
+    const { addCard } = await import("./commands/semble.js")
+    await addCard({ url, note: opts.note, collection: opts.collection })
+  })
+
+semble
+  .command("connect")
+  .description("Create a typed connection between two URLs")
+  .option("--source <url>", "Source URL")
+  .option("--target <url>", "Target URL")
+  .option("--type <type>", "Connection type: SUPPORTS, OPPOSES, RELATED, ADDRESSES, HELPFUL, EXPLAINER, LEADS_TO, SUPPLEMENTS", "RELATED")
+  .option("--note <text>", "Explanation of the connection")
+  .action(async (opts) => {
+    if (!opts.source || !opts.target) {
+      console.error("Error: --source and --target are required")
+      process.exit(1)
+    }
+    const { connect } = await import("./commands/semble.js")
+    await connect({ source: opts.source, target: opts.target, type: opts.type, note: opts.note })
+  })
+
 // blog: Publish long-form content to GreenGale
+// Note: Prefer `publish` (site.standard.document) for new long-form work — it
+// uses a shared-namespace lexicon, renders on Leaflet, and any renderer can
+// pick it up. `blog` writes `app.greengale.document`, a single-vendor record.
+// Use `blog` only when you specifically want a post on GreenGale.
 program
   .command("blog")
-  .description("Publish long-form content to GreenGale (app.greengale.document)")
+  .description("[Legacy: prefer `publish`] Publish long-form content to GreenGale (app.greengale.document, single-vendor)")
   .option("-t, --title <title>", "Post title")
   .option("-s, --slug <slug>", "URL slug (auto-generated from title if not provided)")
   .option("--subtitle <subtitle>", "Optional subtitle")
   .option("-f, --file <path>", "Markdown file to publish (frontmatter supported)")
   .option("-c, --content <text>", "Raw content (use with --title)")
   .action(async (opts) => {
+    console.error(
+      "[blog] Note: writes to GreenGale (`app.greengale.document`, single-vendor lexicon). " +
+        "For documents on shared standards, prefer `social-cli publish` " +
+        "(`site.standard.document`, renders on Leaflet and any compatible renderer).",
+    )
     const { blog } = await import("./commands/blog.js")
     await blog({
       title: opts.title,
@@ -460,6 +529,34 @@ program
       subtitle: opts.subtitle,
       content: opts.content,
       file: opts.file,
+    })
+  })
+
+// publish: Publish long-form essays to ATProto (site.standard.document + pub.leaflet.content)
+program
+  .command("publish")
+  .description("Publish a document via site.standard.document with pub.leaflet.content (renders on Leaflet)")
+  .option("-t, --title <title>", "Document title")
+  .option("-d, --description <text>", "Short description / excerpt")
+  .option("--tags <tags>", "Comma-separated tags")
+  .option("-f, --file <path>", "Markdown file (frontmatter supported)")
+  .option("-c, --content <text>", "Raw markdown content (use with --title)")
+  .option("--rkey <rkey>", "Custom rkey (for updating an existing document)")
+  .option("--slug <slug>", "URL slug (default: slugified title)")
+  .option("--publication <at-uri>", "Publication AT-URI (or set LEAFLET_PUBLICATION_URI env var)")
+  .option("--dry-run", "Print the record without writing to PDS")
+  .action(async (opts) => {
+    const { publish } = await import("./commands/publish.js")
+    await publish({
+      title: opts.title,
+      description: opts.description,
+      tags: opts.tags,
+      file: opts.file,
+      content: opts.content,
+      rkey: opts.rkey,
+      slug: opts.slug,
+      publication: opts.publication,
+      dryRun: opts.dryRun,
     })
   })
 

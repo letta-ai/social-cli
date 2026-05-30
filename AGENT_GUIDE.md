@@ -6,20 +6,72 @@ This guide tells you everything you need to operate it.
 
 ## Setup
 
-The tool must be run from a working directory containing a `.env` with platform credentials. You do not need to manage credentials — they are pre-configured. If a command fails with an auth error, tell your operator.
+The tool must be run from a working directory containing a `.env` with platform credentials.
+
+For X, the provider expects **OAuth 1.0a user credentials**, not OAuth 2.0 client credentials. The required env vars are:
+
+```bash
+X_API_KEY
+X_API_SECRET
+X_ACCESS_TOKEN
+X_ACCESS_TOKEN_SECRET
+```
+
+In the X developer portal, these map to the **OAuth 1.0 Keys** section:
+
+- Consumer Key → `X_API_KEY`
+- Consumer Secret → `X_API_SECRET`
+- Access Token → `X_ACCESS_TOKEN`
+- Access Token Secret → `X_ACCESS_TOKEN_SECRET`
+
+If a command fails with an auth error, tell your operator.
+
+
+## Runtime State: read this first
+
+Generated runtime files live under a state directory, not necessarily the repo root. Before reading or writing inbox/outbox files, run:
+
+```bash
+social-cli doctor
+```
+
+Use the printed `stateDir`. The normal files are:
+
+- `inbox-bsky.yaml`, `inbox-x.yaml` — pending notifications
+- `outbox-bsky.yaml`, `outbox-x.yaml` — your dispatch decisions
+- `dispatch_result-bsky.yaml`, `dispatch_result-x.yaml` — results
+- `processed-*.yaml`, `sent_ledger-*.yaml`, `outbox_archive/` — bookkeeping
+
+Default state directory:
+
+- If `AGENT_ID` is set: `.social-cli/state/agents/<AGENT_ID>/`
+- Otherwise: `.social-cli/state/`
+
+If multiple non-Letta agents share a checkout, set `SOCIAL_CLI_STATE_DIR` or `state.stateDir` in `config.yaml` so they do not share inboxes and ledgers.
+
+If `doctor` reports root-level runtime files, run:
+
+```bash
+social-cli doctor --migrate
+```
+
+This moves legacy generated files into the active state directory without overwriting existing files.
 
 ## Core Loop
 
 Your primary workflow is a three-step loop:
 
 ```bash
+# 0. Locate runtime state
+social-cli doctor
+
 # 1. Pull notifications
 social-cli sync --users-dir /path/to/your/users/
 
 # 2. Check if anything needs attention
 social-cli check || exit 0
 
-# 3. Read inbox.yaml, decide what to do, write outbox.yaml, then:
+# 3. Read stateDir/inbox-{platform}.yaml, decide what to do, write stateDir/outbox-{platform}.yaml, then:
 social-cli dispatch
 ```
 
@@ -29,9 +81,9 @@ social-cli dispatch
 social-cli sync --platform bsky --platform x --users-dir /path/to/users/
 ```
 
-This writes `inbox.yaml` as a local pending-work queue. Sync merges in unseen notifications and leaves existing pending items in place until they are explicitly handled by dispatch. It is not an append-only history log. If `--users-dir` is provided, each notification is enriched with a `userContext` field containing your memory file for that author (if one exists). Use this context to personalize your responses.
+This writes `inbox-{platform}.yaml` under the active state directory as a local pending-work queue. Sync merges in unseen notifications and leaves existing pending items in place until they are explicitly handled by dispatch. It is not an append-only history log. If `--users-dir` is provided, each notification is enriched with a `userContext` field containing your memory file for that author (if one exists). Use this context to personalize your responses.
 
-**Output format** (`inbox.yaml`):
+**Output format** (`stateDir/inbox-{platform}.yaml`):
 ```yaml
 notifications:
   - id: "at://did:plc:xxx/app.bsky.feed.post/abc"
@@ -62,7 +114,7 @@ Options:
 - `--users-dir <path>` — directory of user `.md` files for context enrichment
 - `-n, --limit <number>` — max notifications per platform (default: 50)
 - `--max-items <number>` — cap total inbox size (default: 200, oldest dropped)
-- `-o, --output <file>` — output file (default: `inbox.yaml`)
+- `-o, --output <file>` — legacy shared output file when platform isolation is disabled
 
 ### Step 2: Check
 
@@ -81,7 +133,7 @@ No stdout. Decision is purely in the exit code.
 
 ### Step 3: Decide and Dispatch
 
-Read `inbox.yaml`, decide what to do, and write `outbox.yaml`:
+Read `stateDir/inbox-{platform}.yaml`, decide what to do, and write `stateDir/outbox-{platform}.yaml`:
 
 ```yaml
 dispatch:
@@ -95,6 +147,11 @@ dispatch:
   - post:
       text: "Interesting development in agent architectures today."
       platforms: [bsky, x]
+
+  # Post to one platform
+  - post:
+      platform: x
+      text: "Interesting development in agent architectures today."
 
   # Post different text per platform
   - post:
@@ -138,14 +195,14 @@ social-cli dispatch
 **What happens:**
 1. Validates all actions (char limits, required fields, platform support).
 2. Executes each action. Continues on failure — one bad action doesn't block the rest.
-3. Writes `dispatch_result.yaml` with per-action results.
-4. Archives `outbox.yaml` to `outbox_archive/`.
-5. Removes processed notifications from `inbox.yaml`, keeping the file aligned to pending work only.
+3. Writes `dispatch_result-{platform}.yaml` with per-action results.
+4. Archives `outbox-{platform}.yaml` to `outbox_archive/`.
+5. Removes processed notifications from `inbox-{platform}.yaml`, keeping the file aligned to pending work only.
 
 **Exit codes:**
 - 0 = all actions succeeded
 - 1 = validation failed (nothing was dispatched)
-- 2 = partial failure (some actions failed, check `dispatch_result.yaml`)
+- 2 = partial failure (some actions failed, check `dispatch_result-{platform}.yaml`)
 
 **Dry run** — validate without posting:
 ```bash
@@ -153,6 +210,29 @@ social-cli dispatch --dry-run
 ```
 
 Always dry-run if you're unsure about your outbox.
+
+### Dispatch hooks
+
+Operators can configure hooks in `config.yaml` to run scripts around dispatch actions:
+
+```yaml
+hooks:
+  preDispatch:
+    - event: reply
+      command: "bash hooks/example-validate-reply.sh"
+  postDispatch:
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+  onError:
+    - event: "*"
+      command: "bash hooks/example-log-dispatch.sh"
+```
+
+Hooks only apply to the dispatch pipeline, not quick commands. Events are `reply`, `post`, `thread`, `follow`, `like`, `annotate`, `bookmark`, `highlight`, or `*`.
+
+`preDispatch` hooks are blocking: exit `0` allows the action, exit `1` skips it, exit `2` aborts dispatch. `postDispatch` and `onError` hooks are async follow-ups.
+
+Hook scripts receive context as environment variables: `SOCIAL_HOOK_EVENT`, `SOCIAL_HOOK_PLATFORM`, `SOCIAL_HOOK_ACTION_ID`, `SOCIAL_HOOK_TARGET_ID`, `SOCIAL_HOOK_TEXT`, `SOCIAL_HOOK_OUTBOX_PATH`, `SOCIAL_HOOK_RESULT`, and `SOCIAL_HOOK_ERROR`.
 
 ## Quick Commands
 
@@ -253,18 +333,18 @@ Name your files by ID for stability (handles change), or by handle for readabili
 
 - All API calls retry 3 times with exponential backoff on transient errors (429, 5xx, network failures).
 - Bluesky sessions auto-refresh on token expiry.
-- Dispatch continues through failures — check `dispatch_result.yaml` for what succeeded.
-- If a thread fails mid-chain, `dispatch_result.yaml` includes `resumeFrom` with the index and remaining posts so you can retry from where it stopped.
+- Dispatch continues through failures — check `dispatch_result-{platform}.yaml` for what succeeded.
+- If a thread fails mid-chain, `dispatch_result-{platform}.yaml` includes `resumeFrom` with the index and remaining posts so you can retry from where it stopped.
 
 ## Critical: Dispatch vs Quick Commands
 
 There are two ways to post: the **dispatch pipeline** and **quick commands**. They are not interchangeable.
 
-**Always use dispatch when replying to inbox notifications.** The dispatch pipeline marks notifications as processed and removes them from `inbox.yaml`. Quick commands (`reply`, `post`) do not. If you use `reply` directly on an inbox item, the notification stays in the inbox and will reappear next sync — you'll waste time re-investigating something you already handled.
+**Always use dispatch when replying to inbox notifications.** The dispatch pipeline marks notifications as processed and removes them from `inbox-{platform}.yaml`. Quick commands (`reply`, `post`) do not. If you use `reply` directly on an inbox item, the notification stays in the inbox and will reappear next sync — you'll waste time re-investigating something you already handled.
 
 ```
 # CORRECT — replying to a notification
-# Write outbox.yaml with a reply action, then:
+# Write stateDir/outbox-{platform}.yaml with a reply action, then:
 social-cli dispatch
 
 # WRONG — replying to a notification
@@ -292,9 +372,9 @@ When processing inbox notifications:
 
 | Command | Description | Output |
 |---------|-------------|--------|
-| `sync` | Pull notifications | `inbox.yaml` |
+| `sync` | Pull notifications | `stateDir/inbox-{platform}.yaml` |
 | `check` | Anything actionable? | exit code only |
-| `dispatch` | Execute outbox | `dispatch_result.yaml` |
+| `dispatch` | Execute outbox | `stateDir/dispatch_result-{platform}.yaml` |
 | `post` | Single post | stdout (post ID) |
 | `reply` | Reply to post | stdout (post ID) |
 | `thread` | Post thread | stdout (post IDs) |
@@ -307,3 +387,28 @@ When processing inbox notifications:
 | `posts` | User's recent posts | stdout YAML |
 | `whoami` | Current account info | stdout YAML |
 | `rate-limits` | Rate limit status | stdout YAML |
+
+## Long-form publishing
+
+Use `publish` for Leaflet / Standard.site documents. This writes a `site.standard.document` record with embedded `pub.leaflet.content` to the configured Bluesky PDS.
+
+```bash
+social-cli publish --file essay.md --publication at://did:plc:.../site.standard.publication/...
+social-cli publish --file essay.md --dry-run
+social-cli publish --title "Quick Note" --content "Markdown content here"
+```
+
+The command requires either `--publication <at-uri>` or `LEAFLET_PUBLICATION_URI` in the environment. File input supports frontmatter:
+
+```markdown
+---
+title: My Essay
+description: Short excerpt
+tags: ai, agents, atproto
+slug: my-essay
+---
+```
+
+Supported markdown: paragraphs, ATX headings, inline links, bold, italic, inline code, and standalone PNG/JPEG/WebP images (`![alt](path)`). Images are uploaded as PDS blobs and must satisfy Leaflet's blob size limits.
+
+By default, `publish` uses the slug as the record rkey so `{publication-domain}/{slug}` resolves. Use `--rkey tid` only when a generated TID rkey and deep Leaflet permalink are acceptable.

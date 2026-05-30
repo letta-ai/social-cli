@@ -16,6 +16,7 @@ export interface OutboxAction {
   }
   post?: {
     text?: string
+    platform?: string
     platforms?: string[] | Record<string, string>
     /** Embed this post as a quote (AT URI or tweet ID). */
     quoteId?: string
@@ -30,8 +31,6 @@ export interface OutboxAction {
     replyTo?: string
     /** Media file paths to attach to the first post. */
     media?: string[]
-    /** Auto-generate a branded header card. */
-    card?: boolean | { title?: string; subtitle?: string; pattern?: string }
     idempotencyKey?: string
   }
   annotate?: {
@@ -121,6 +120,12 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!r.platform) errors.push(`${prefix}: reply missing 'platform'`)
       if (!r.id) errors.push(`${prefix}: reply missing 'id'`)
       if (!r.text) errors.push(`${prefix}: reply missing 'text'`)
+      if (r.media !== undefined && !Array.isArray(r.media)) {
+        errors.push(`${prefix}: reply 'media' must be an array of file paths`)
+      }
+      if (Array.isArray(r.media) && r.media.some((m) => typeof m !== "string" || m.trim() === "")) {
+        errors.push(`${prefix}: reply 'media' entries must be non-empty file paths`)
+      }
       if (r.platform && r.text) {
         const limit = PLATFORM_LIMITS[r.platform]
         if (limit && r.text.length > limit.chars) {
@@ -134,10 +139,19 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!p.text && !p.platforms) {
         errors.push(`${prefix}: post needs 'text' or 'platforms' with per-platform text`)
       }
+      if (p.platform && p.platforms) {
+        errors.push(`${prefix}: post cannot have both 'platform' and 'platforms'`)
+      }
       if (p.quoteId && p.replyTo) {
         errors.push(`${prefix}: post cannot have both 'quoteId' and 'replyTo'`)
       }
       // Validate char limits for each platform
+      if (p.text && p.platform) {
+        const limit = PLATFORM_LIMITS[p.platform]
+        if (limit && p.text.length > limit.chars) {
+          errors.push(`${prefix}: post text exceeds ${p.platform} limit (${p.text.length}/${limit.chars})`)
+        }
+      }
       if (p.text && p.platforms && Array.isArray(p.platforms)) {
         for (const plat of p.platforms) {
           const limit = PLATFORM_LIMITS[plat]

@@ -30,8 +30,8 @@ export interface AnnotateOpts {
 }
 
 export interface NotificationMediaVariant {
-  contentType: string
-  url: string
+  contentType?: string
+  url?: string
   bitRate?: number
 }
 
@@ -44,6 +44,8 @@ export interface NotificationMedia {
   width?: number
   height?: number
   variants?: NotificationMediaVariant[]
+  /** Filesystem path of a locally downloaded copy (set by `sync --media`). */
+  localPath?: string
 }
 
 export interface Notification {
@@ -64,7 +66,7 @@ export interface Notification {
 }
 
 export interface EmbedInfo {
-  type: "external" | "images" | "record" | "recordWithMedia"
+  type: "external" | "images" | "record" | "recordWithMedia" | "video"
   /** External link URL. */
   uri?: string
   /** External link title. */
@@ -72,13 +74,21 @@ export interface EmbedInfo {
   /** External link description. */
   description?: string
   /** Attached images. */
-  images?: { alt: string; url?: string }[]
+  images?: { alt: string; url?: string; localPath?: string }[]
   /** Quoted post AT-URI. */
   quotedUri?: string
   /** Quoted post text (truncated). */
   quotedText?: string
   /** Quoted post author handle. */
   quotedAuthor?: string
+  /** Video HLS playlist URL (m3u8). */
+  playlist?: string
+  /** Video thumbnail JPG URL. */
+  thumbnail?: string
+  /** Video alt text. */
+  videoAlt?: string
+  /** Video aspect ratio. */
+  aspectRatio?: { width: number; height: number }
 }
 
 export interface SearchResult {

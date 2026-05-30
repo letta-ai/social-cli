@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.letta/
 .env
 .env.*
 inbox.yaml
@@ -15,3 +16,13 @@ package-lock.json
 !config.yaml.example
 outbox_archive/
 sent_ledger.yaml
+attachments/
+# Generated social-cli runtime state
+.social-cli/state/
+inbox*.yaml
+outbox*.yaml
+processed*.yaml
+sent_ledger*.yaml
+dispatch_result*.yaml
+*_feed.yaml
+*_inbox.yaml
