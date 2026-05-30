@@ -148,6 +148,11 @@ dispatch:
       text: "Interesting development in agent architectures today."
       platforms: [bsky, x]
 
+  # Post to one platform
+  - post:
+      platform: x
+      text: "Interesting development in agent architectures today."
+
   # Post different text per platform
   - post:
       platforms:

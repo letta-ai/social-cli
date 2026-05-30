@@ -16,6 +16,7 @@ export interface OutboxAction {
   }
   post?: {
     text?: string
+    platform?: string
     platforms?: string[] | Record<string, string>
     /** Embed this post as a quote (AT URI or tweet ID). */
     quoteId?: string
@@ -138,10 +139,19 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!p.text && !p.platforms) {
         errors.push(`${prefix}: post needs 'text' or 'platforms' with per-platform text`)
       }
+      if (p.platform && p.platforms) {
+        errors.push(`${prefix}: post cannot have both 'platform' and 'platforms'`)
+      }
       if (p.quoteId && p.replyTo) {
         errors.push(`${prefix}: post cannot have both 'quoteId' and 'replyTo'`)
       }
       // Validate char limits for each platform
+      if (p.text && p.platform) {
+        const limit = PLATFORM_LIMITS[p.platform]
+        if (limit && p.text.length > limit.chars) {
+          errors.push(`${prefix}: post text exceeds ${p.platform} limit (${p.text.length}/${limit.chars})`)
+        }
+      }
       if (p.text && p.platforms && Array.isArray(p.platforms)) {
         for (const plat of p.platforms) {
           const limit = PLATFORM_LIMITS[plat]

@@ -162,6 +162,10 @@ dispatch:
       text: "Hello from social-cli"
       platforms: [bsky, x]
 
+  - post:
+      platform: x
+      text: "Hello from X only"
+
   - thread:
       platform: bsky
       posts:
