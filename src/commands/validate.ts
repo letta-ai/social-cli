@@ -136,7 +136,7 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
 
     if (type === "post") {
       const p = action.post!
-      if (!p.text && !p.platform && !p.platforms) {
+      if (!p.text && !p.platforms) {
         errors.push(`${prefix}: post needs 'text' or 'platforms' with per-platform text`)
       }
       if (p.platform && p.platforms) {
