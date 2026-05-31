@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { stringify } from "yaml"
+import { parse, stringify } from "yaml"
 import type { SocialPlatform } from "../platforms/types.js"
 
 const { runHooksMock, getPlatformAsyncMock } = vi.hoisted(() => ({
@@ -44,6 +44,59 @@ function createPlatform(overrides: Partial<SocialPlatform> = {}): SocialPlatform
     ...overrides,
   }
 }
+
+
+describe("dispatch explicit-file state warnings", () => {
+  const originalCwd = process.cwd()
+  let testDir: string
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    testDir = mkdtempSync(join(tmpdir(), "social-cli-dispatch-warning-test-"))
+    process.chdir(testDir)
+    writeFileSync(join(testDir, "config.yaml"), stringify({ accounts: {} }))
+
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    runHooksMock.mockReset()
+    runHooksMock.mockResolvedValue({ results: [], blocked: false, abort: false })
+    getPlatformAsyncMock.mockReset()
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+    process.chdir(originalCwd)
+    rmSync(testDir, { recursive: true, force: true })
+  })
+
+  it("warns when an explicit root outbox will use stateDir companions instead of root inbox files", async () => {
+    writeFileSync(
+      join(testDir, "inbox-bsky.yaml"),
+      stringify({
+        notifications: [
+          { id: "at://ignored-post", postId: "at://ignored-post", platform: "bsky", type: "reply" },
+        ],
+        _sync: { totalCount: 1 },
+      }),
+    )
+    writeFileSync(
+      join(testDir, "outbox-bsky.yaml"),
+      stringify({
+        dispatch: [{ ignore: { id: "at://ignored-post", reason: "already handled" } }],
+      }),
+    )
+
+    await dispatch({ file: "outbox-bsky.yaml" })
+
+    const warning = warnSpy.mock.calls.map((call: unknown[]) => call.join(" ")).join("\n")
+    expect(warning).toContain("explicit outbox")
+    expect(warning).toContain("outside active stateDir")
+    expect(warning).toContain("dispatch will not prune those files")
+
+    const rootInbox = parse(readFileSync(join(testDir, "inbox-bsky.yaml"), "utf8"))
+    expect(rootInbox.notifications.map((n: any) => n.id)).toEqual(["at://ignored-post"])
+  })
+})
+
 
 describe("dispatch hook alignment", () => {
   const originalCwd = process.cwd()

@@ -13,7 +13,7 @@
  */
 
 import { readFileSync, existsSync, mkdirSync, rmSync } from "node:fs"
-import { resolve, join, basename } from "node:path"
+import { resolve, join, basename, dirname } from "node:path"
 import { createHash } from "node:crypto"
 import { parse, stringify } from "yaml"
 import { getPlatformAsync } from "../platforms/index.js"
@@ -250,6 +250,25 @@ async function dispatchPlatform(
     : platformIsolation
       ? getPlatformFilePath("outbox", platform, stateDir)
       : getSharedFilePath("outbox", stateDir)
+
+  if (opts.explicitFile && platformIsolation) {
+    const activeStateDir = resolveStateDir(stateDir)
+    const explicitDir = resolve(dirname(outboxPath))
+    if (explicitDir !== activeStateDir) {
+      const companionInbox = resolve(explicitDir, `inbox-${platform}.yaml`)
+      const companionSharedInbox = resolve(explicitDir, "inbox.yaml")
+      const hasCompanionInbox = existsSync(companionInbox) || existsSync(companionSharedInbox)
+      const inboxHint = hasCompanionInbox
+        ? ` Found inbox file(s) next to the outbox; dispatch will not prune those files.`
+        : ""
+      console.warn(
+        `[${platform}] Warning: explicit outbox ${outboxPath} is outside active stateDir ${activeStateDir}. `
+          + `Dispatch will still use inbox/processed/result files in the active stateDir, not next to the outbox.`
+          + inboxHint
+          + " Run `social-cli doctor --migrate`, move the outbox into stateDir, or set SOCIAL_CLI_STATE_DIR intentionally.",
+      )
+    }
+  }
 
   if (!existsSync(outboxPath)) {
     console.log(`[${platform}] No outbox file found at ${outboxPath}, skipping.`)
