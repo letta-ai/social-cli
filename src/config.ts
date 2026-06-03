@@ -31,6 +31,16 @@ export interface StateConfig {
   platformIsolation?: boolean
   /** Directory for state files (default: cwd) */
   stateDir?: string
+  /**
+   * Directory for dispatched-outbox archives (the per-run
+   * `<timestamp>_outbox-<platform>.yaml` files). Relative paths resolve
+   * against the state dir (cwd); absolute paths are used as-is.
+   * Default: "outbox_archive". The `SOCIAL_CLI_ARCHIVE_DIR` env var takes
+   * precedence — handy for headless callers (e.g. a poller framework) that
+   * want to route the high-churn archive out of version-controlled state
+   * without editing a config file.
+   */
+  archiveDir?: string
 }
 
 export interface Config {
@@ -70,6 +80,8 @@ export function loadConfig(): Config {
       return {
         accounts,
         sync: parsed.sync,
+        dispatch: parsed.dispatch,
+        state: parsed.state,
       }
     }
   }

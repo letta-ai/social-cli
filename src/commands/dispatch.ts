@@ -31,6 +31,7 @@ import {
   readPlatformFile,
   writePlatformFile,
   readSharedFile,
+  resolveArchiveDir,
 } from "../lib/state.js"
 
 /**
@@ -676,8 +677,11 @@ async function dispatchPlatform(
     }
   }
 
-  // Archive outbox
-  const archiveDir = resolve(process.cwd(), "outbox_archive")
+  // Archive outbox. Configurable via SOCIAL_CLI_ARCHIVE_DIR / state.archiveDir
+  // (default <stateDir>/outbox_archive) so the high-churn per-run archive can
+  // be routed out of version-controlled state. Also fixes the prior
+  // process.cwd() hardcode to respect stateDir like the other state files.
+  const archiveDir = resolveArchiveDir(stateDir, config.state?.archiveDir)
   mkdirSync(archiveDir, { recursive: true })
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
   const archivedOutbox = join(archiveDir, `${timestamp}_outbox-${platform}.yaml`)

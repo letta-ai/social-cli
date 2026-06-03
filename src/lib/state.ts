@@ -11,7 +11,7 @@
  */
 
 import { existsSync, readFileSync, mkdirSync, copyFileSync, readdirSync } from "node:fs"
-import { resolve, join, basename, dirname } from "node:path"
+import { resolve, join, basename, dirname, isAbsolute } from "node:path"
 import { parse, stringify } from "yaml"
 import { writeFileAtomic } from "../util/fs.js"
 
@@ -282,21 +282,41 @@ export function pruneInboxByPostId(
 }
 
 /**
- * Archive a platform-specific outbox file after dispatch.
+ * Resolve the directory for dispatched-outbox archives. Precedence:
+ *   1. `SOCIAL_CLI_ARCHIVE_DIR` env var
+ *   2. `archiveDir` argument (from `config.state.archiveDir`)
+ *   3. default: "outbox_archive"
+ * Relative values resolve against `stateDir` (or cwd); absolute values are
+ * used as-is. This lets a caller route the high-churn per-run archive out of
+ * version-controlled state without forking the tool.
+ */
+export function resolveArchiveDir(stateDir?: string, archiveDir?: string): string {
+  const baseDir = stateDir ?? process.cwd()
+  const override = process.env.SOCIAL_CLI_ARCHIVE_DIR || archiveDir
+  if (override && override.trim()) {
+    return isAbsolute(override) ? override : resolve(baseDir, override)
+  }
+  return resolve(baseDir, "outbox_archive")
+}
+
+/**
+ * Archive a platform-specific outbox file after dispatch. The archive
+ * directory is configurable (see `resolveArchiveDir`); defaults to
+ * `<stateDir>/outbox_archive` for backward compatibility.
  */
 export function archivePlatformOutbox(
   platform: string,
-  stateDir?: string
+  stateDir?: string,
+  archiveDir?: string
 ): string | null {
   const outboxPath = getPlatformFilePath("outbox", platform, stateDir)
   if (!existsSync(outboxPath)) return null
-  
-  const baseDir = stateDir ?? process.cwd()
-  const archiveDir = resolve(baseDir, "outbox_archive")
-  mkdirSync(archiveDir, { recursive: true })
-  
+
+  const archiveDirPath = resolveArchiveDir(stateDir, archiveDir)
+  mkdirSync(archiveDirPath, { recursive: true })
+
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const archivedPath = join(archiveDir, `${timestamp}_outbox-${platform}.yaml`)
+  const archivedPath = join(archiveDirPath, `${timestamp}_outbox-${platform}.yaml`)
   
   // Use renameSync equivalent via copy + delete would be ideal
   // but for simplicity, we'll copy and let the caller handle deletion

@@ -68,6 +68,30 @@ social-cli dispatch                    # execute decisions, mark processed
 
 The agent loop handles bookkeeping — marking notifications as processed, deduplicating, archiving outboxes. Agents read `inbox.yaml`, write decisions to `outbox.yaml`, and `dispatch` executes them.
 
+### State directory & archive
+
+State files (`inbox`, `outbox`, `sent_ledger`, `processed`) live in the state
+directory (`state.stateDir` in `config.yaml`, default: the current directory).
+Each `dispatch` archives the outbox it just sent to a per-run
+`<timestamp>_outbox-<platform>.yaml` under an archive directory — these
+accumulate over time.
+
+The archive directory is configurable, which is useful when the state directory
+is version-controlled and you don't want the high-churn per-run archives tracked:
+
+```yaml
+state:
+  stateDir: ./state          # where inbox/outbox/ledgers live (default: cwd)
+  archiveDir: outbox_archive  # relative → under stateDir; absolute → as-is (default: "outbox_archive")
+```
+
+Or, without a config file (e.g. when a harness invokes `social-cli` headless),
+set `SOCIAL_CLI_ARCHIVE_DIR` — it takes precedence over `state.archiveDir`:
+
+```bash
+SOCIAL_CLI_ARCHIVE_DIR=/var/tmp/social-archive social-cli dispatch
+```
+
 ### Quick commands
 
 For actions that don't come from notifications:
