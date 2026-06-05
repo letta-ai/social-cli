@@ -49,4 +49,58 @@ describe("validateOutbox post actions", () => {
     expect(result.valid).toBe(false)
     expect(result.errors).toContain("Action 0: post cannot have both 'platform' and 'platforms'")
   })
+
+  it("accepts media alt text aligned with attached media", () => {
+    const result = validateOutbox({
+      dispatch: [
+        {
+          post: {
+            platform: "bsky",
+            text: "hello with media",
+            media: ["/tmp/card.png"],
+            mediaAlt: ["Card reading: hello with media"],
+          },
+        },
+      ],
+    })
+
+    expect(result.valid).toBe(true)
+    expect(result.errors).toEqual([])
+    expect(result.warnings).toEqual([])
+  })
+
+  it("warns when media has no mediaAlt", () => {
+    const result = validateOutbox({
+      dispatch: [
+        {
+          thread: {
+            platform: "bsky",
+            posts: ["hello"],
+            media: ["/tmp/card.png"],
+          },
+        },
+      ],
+    })
+
+    expect(result.valid).toBe(true)
+    expect(result.warnings).toContain("Action 0: thread has media but no mediaAlt; attached images will post without alt text")
+  })
+
+  it("rejects mediaAlt without media", () => {
+    const result = validateOutbox({
+      dispatch: [
+        {
+          reply: {
+            platform: "bsky",
+            id: "at://target",
+            text: "hello",
+            mediaAlt: ["orphan alt"],
+          },
+        },
+      ],
+    })
+
+    expect(result.valid).toBe(false)
+    expect(result.errors).toContain("Action 0: reply 'mediaAlt' requires 'media'")
+  })
 })

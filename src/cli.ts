@@ -15,6 +15,27 @@ function resolveUsersDir(): string | undefined {
   return undefined
 }
 
+function collectOption(value: string, previous: string[] = []): string[] {
+  previous.push(value)
+  return previous
+}
+
+function mediaOptions(opts: { media?: string[]; mediaAlt?: string[] }): { media?: string[]; mediaAlt?: string[] } {
+  const media = opts.media?.length ? opts.media : undefined
+  const mediaAlt = opts.mediaAlt?.length ? opts.mediaAlt : undefined
+
+  if (mediaAlt && !media) {
+    console.error("Error: --media-alt requires --media")
+    process.exit(1)
+  }
+  if (media && mediaAlt && mediaAlt.length > media.length) {
+    console.error(`Error: received ${mediaAlt.length} --media-alt value(s) for ${media.length} media file(s)`)
+    process.exit(1)
+  }
+
+  return { media, mediaAlt }
+}
+
 const program = new Command()
   .name("social-cli")
   .description("Agent-optimized social media CLI")
@@ -131,19 +152,21 @@ program
   .option("--quote <id>", "Quote/repost a post by ID")
   .option("--reply-to <id>", "Post as a reply to this post ID")
   .option("-m, --media <paths...>", "Media file paths to attach")
+  .option("--media-alt <text>", "Alt text for attached media; repeat to match media order", collectOption, [])
   .action(async (text, opts) => {
     const { validateText } = await import("./util/validate.js")
     validateText(opts.platform, text)
+    const media = mediaOptions(opts)
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
     if (opts.replyTo) {
-      const result = await platform.reply(opts.replyTo, text, { quoteId: opts.quote, media: opts.media })
+      const result = await platform.reply(opts.replyTo, text, { quoteId: opts.quote, ...media })
       console.log(`Posted (reply): ${result.id}`)
       const { pruneInboxByPostId } = await import("./lib/state.js")
       const pruned = pruneInboxByPostId(opts.platform, [opts.replyTo])
       if (pruned.length > 0) console.log(`Pruned ${pruned.length} inbox notification(s) matching reply target`)
     } else {
-      const result = await platform.post(text, { quoteId: opts.quote, media: opts.media })
+      const result = await platform.post(text, { quoteId: opts.quote, ...media })
       console.log(`Posted: ${result.id}`)
     }
   })
@@ -156,12 +179,14 @@ program
   .requiredOption("--id <id>", "Post ID to reply to")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("-m, --media <paths...>", "Media file paths to attach")
+  .option("--media-alt <text>", "Alt text for attached media; repeat to match media order", collectOption, [])
   .action(async (text, opts) => {
     const { validateText } = await import("./util/validate.js")
     validateText(opts.platform, text)
+    const media = mediaOptions(opts)
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
-    const result = await platform.reply(opts.id, text, { media: opts.media })
+    const result = await platform.reply(opts.id, text, media)
     console.log(`Replied: ${result.id}`)
     const { pruneInboxByPostId } = await import("./lib/state.js")
     const pruned = pruneInboxByPostId(opts.platform, [opts.id])
@@ -175,16 +200,17 @@ program
   .argument("<posts...>", "Thread posts (each argument is one post)")
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("-m, --media <paths...>", "Media file paths to attach to first post")
+  .option("--media-alt <text>", "Alt text for attached media; repeat to match media order", collectOption, [])
   .action(async (posts, opts) => {
     const { validateTexts } = await import("./util/validate.js")
     validateTexts(opts.platform, posts)
 
-    const mediaPaths: string[] = opts.media ?? []
+    const media = mediaOptions(opts)
 
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
     const results = await platform.thread(posts, undefined, {
-      media: mediaPaths.length > 0 ? mediaPaths : undefined,
+      ...media,
     })
     for (const r of results) console.log(`Posted: ${r.id}`)
     console.log(`Thread: ${results.length} posts`)

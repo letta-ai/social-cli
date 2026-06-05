@@ -286,10 +286,11 @@ function readJpegDimensions(buf: Buffer): { width: number; height: number } | un
 /**
  * Upload media files to Bluesky and return embed structure.
  */
-async function uploadMedia(agent: Agent, mediaPaths: string[]): Promise<any> {
+async function uploadMedia(agent: Agent, mediaPaths: string[], mediaAlt: string[] = []): Promise<any> {
   const images: Array<{ alt: string; image: any; aspectRatio?: { width: number; height: number } }> = []
 
-  for (const path of mediaPaths) {
+  for (let idx = 0; idx < mediaPaths.length; idx++) {
+    const path = mediaPaths[idx]
     const ext = extname(path).toLowerCase()
     const mimeTypes: Record<string, string> = {
       ".jpg": "image/jpeg",
@@ -318,7 +319,7 @@ async function uploadMedia(agent: Agent, mediaPaths: string[]): Promise<any> {
     }
 
     images.push({
-      alt: "",
+      alt: mediaAlt[idx] ?? "",
       image: blob.data.blob,
       ...(aspectRatio ? { aspectRatio } : {}),
     })
@@ -352,7 +353,7 @@ export const bluesky: SocialPlatform = {
 
       // Handle media uploads
       if (opts?.media && opts.media.length > 0) {
-        const mediaEmbed = await uploadMedia(agent, opts.media)
+        const mediaEmbed = await uploadMedia(agent, opts.media, opts.mediaAlt)
         if (mediaEmbed) {
           if (embed) {
             // Combine quote + media
@@ -388,7 +389,7 @@ export const bluesky: SocialPlatform = {
       // Handle media uploads
       let embed: any = undefined
       if (opts?.media && opts.media.length > 0) {
-        embed = await uploadMedia(agent, opts.media)
+        embed = await uploadMedia(agent, opts.media, opts.mediaAlt)
       }
 
       const res = await agent.post({
@@ -432,7 +433,7 @@ export const bluesky: SocialPlatform = {
 
       // Attach media to the first post only
       if (idx === 0 && opts?.media && opts.media.length > 0) {
-        postData.embed = await uploadMedia(agent, opts.media)
+        postData.embed = await uploadMedia(agent, opts.media, opts.mediaAlt)
       }
 
       const res = await withRetry(() => agent.post(postData))

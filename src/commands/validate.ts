@@ -11,6 +11,7 @@ export interface OutboxAction {
     id: string
     text: string
     media?: string[]
+    mediaAlt?: string[]
     notificationId?: string
     idempotencyKey?: string
   }
@@ -18,6 +19,10 @@ export interface OutboxAction {
     text?: string
     platform?: string
     platforms?: string[] | Record<string, string>
+    /** Media file paths to attach. */
+    media?: string[]
+    /** Alt text for media attachments, aligned by index with `media`. */
+    mediaAlt?: string[]
     /** Embed this post as a quote (AT URI or tweet ID). */
     quoteId?: string
     /** Post as a reply to this URI (AT URI or tweet ID). */
@@ -31,6 +36,8 @@ export interface OutboxAction {
     replyTo?: string
     /** Media file paths to attach to the first post. */
     media?: string[]
+    /** Alt text for media attachments, aligned by index with `media`. */
+    mediaAlt?: string[]
     idempotencyKey?: string
   }
   annotate?: {
@@ -74,6 +81,37 @@ export interface ValidationResult {
   valid: boolean
   errors: string[]
   warnings: string[]
+}
+
+function validateMediaFields(
+  prefix: string,
+  label: string,
+  media: unknown,
+  mediaAlt: unknown,
+  errors: string[],
+  warnings: string[],
+): void {
+  if (media !== undefined && !Array.isArray(media)) {
+    errors.push(`${prefix}: ${label} 'media' must be an array of file paths`)
+  }
+  if (Array.isArray(media) && media.some((m) => typeof m !== "string" || m.trim() === "")) {
+    errors.push(`${prefix}: ${label} 'media' entries must be non-empty file paths`)
+  }
+  if (mediaAlt !== undefined && !Array.isArray(mediaAlt)) {
+    errors.push(`${prefix}: ${label} 'mediaAlt' must be an array of alt text strings`)
+  }
+  if (Array.isArray(mediaAlt) && mediaAlt.some((m) => typeof m !== "string" || m.trim() === "")) {
+    errors.push(`${prefix}: ${label} 'mediaAlt' entries must be non-empty strings`)
+  }
+  if (Array.isArray(mediaAlt) && mediaAlt.length > 0 && !Array.isArray(media)) {
+    errors.push(`${prefix}: ${label} 'mediaAlt' requires 'media'`)
+  }
+  if (Array.isArray(media) && Array.isArray(mediaAlt) && mediaAlt.length > media.length) {
+    errors.push(`${prefix}: ${label} has ${mediaAlt.length} mediaAlt value(s) for ${media.length} media file(s)`)
+  }
+  if (Array.isArray(media) && media.length > 0 && (!Array.isArray(mediaAlt) || mediaAlt.length === 0)) {
+    warnings.push(`${prefix}: ${label} has media but no mediaAlt; attached images will post without alt text`)
+  }
 }
 
 export function validateOutbox(outbox: OutboxFile): ValidationResult {
@@ -120,12 +158,7 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!r.platform) errors.push(`${prefix}: reply missing 'platform'`)
       if (!r.id) errors.push(`${prefix}: reply missing 'id'`)
       if (!r.text) errors.push(`${prefix}: reply missing 'text'`)
-      if (r.media !== undefined && !Array.isArray(r.media)) {
-        errors.push(`${prefix}: reply 'media' must be an array of file paths`)
-      }
-      if (Array.isArray(r.media) && r.media.some((m) => typeof m !== "string" || m.trim() === "")) {
-        errors.push(`${prefix}: reply 'media' entries must be non-empty file paths`)
-      }
+      validateMediaFields(prefix, "reply", r.media, r.mediaAlt, errors, warnings)
       if (r.platform && r.text) {
         const limit = PLATFORM_LIMITS[r.platform]
         if (limit && r.text.length > limit.chars) {
@@ -145,6 +178,7 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (p.quoteId && p.replyTo) {
         errors.push(`${prefix}: post cannot have both 'quoteId' and 'replyTo'`)
       }
+      validateMediaFields(prefix, "post", p.media, p.mediaAlt, errors, warnings)
       // Validate char limits for each platform
       if (p.text && p.platform) {
         const limit = PLATFORM_LIMITS[p.platform]
@@ -176,6 +210,7 @@ export function validateOutbox(outbox: OutboxFile): ValidationResult {
       if (!t.posts || !Array.isArray(t.posts) || t.posts.length === 0) {
         errors.push(`${prefix}: thread needs non-empty 'posts' array`)
       }
+      validateMediaFields(prefix, "thread", t.media, t.mediaAlt, errors, warnings)
       if (t.platform && t.posts) {
         const limit = PLATFORM_LIMITS[t.platform]
         if (limit) {
