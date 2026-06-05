@@ -510,6 +510,7 @@ async function dispatchPlatform(
         const plat = await getPlatformAsync(r.platform)
         const replyOpts: PostOpts = {}
         if (r.media && r.media.length > 0) replyOpts.media = r.media
+        if (r.mediaAlt && r.mediaAlt.length > 0) replyOpts.mediaAlt = r.mediaAlt
         const res = await plat.reply(r.id, r.text, replyOpts)
         results.push({ action: "reply", platform: r.platform, status: "ok", id: res.id, targetId: r.id })
         successfulReplyCount += 1
@@ -591,10 +592,14 @@ async function dispatchPlatform(
             // Route through reply when replyTo is specified
             const replyOpts: PostOpts = {}
             if (p.quoteId) replyOpts.quoteId = p.quoteId
+            if (p.media && p.media.length > 0) replyOpts.media = p.media
+            if (p.mediaAlt && p.mediaAlt.length > 0) replyOpts.mediaAlt = p.mediaAlt
             res = await plat.reply(p.replyTo, t.text, replyOpts)
           } else {
             const postOpts: PostOpts = {}
             if (p.quoteId) postOpts.quoteId = p.quoteId
+            if (p.media && p.media.length > 0) postOpts.media = p.media
+            if (p.mediaAlt && p.mediaAlt.length > 0) postOpts.mediaAlt = p.mediaAlt
             res = await plat.post(t.text, postOpts)
           }
           results.push({ action: "post", platform: t.platform, status: "ok", id: res.id })
@@ -639,10 +644,12 @@ async function dispatchPlatform(
       const threadResultStart = results.length
       try {
         const mediaPaths: string[] = t.media ?? []
+        const mediaAlt: string[] = t.mediaAlt ?? []
 
         const plat = await getPlatformAsync(t.platform)
         const res = await plat.thread(t.posts, t.replyTo, {
           media: mediaPaths.length > 0 ? mediaPaths : undefined,
+          mediaAlt: mediaAlt.length > 0 ? mediaAlt : undefined,
         })
         for (const r of res) {
           results.push({ action: "thread", platform: t.platform, status: "ok", id: r.id })

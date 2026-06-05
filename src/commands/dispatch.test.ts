@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { stringify } from "yaml"
-import type { SocialPlatform } from "../platforms/types.js"
+import type { PostOpts, SocialPlatform, ThreadOpts } from "../platforms/types.js"
 
 const { runHooksMock, getPlatformAsyncMock } = vi.hoisted(() => ({
   runHooksMock: vi.fn(),
@@ -187,6 +187,64 @@ describe("dispatch hook alignment", () => {
         result: "success",
       },
     ])
+  })
+
+  it("passes media alt text through post and thread actions", async () => {
+    const bsky = createPlatform({
+      post: async (text: string, opts?: PostOpts) => {
+        expect(opts).toEqual({
+          media: ["/tmp/card.png"],
+          mediaAlt: ["Alt text for the card"],
+        })
+        return { platform: "bsky", id: "post-with-alt", uri: "at://post-with-alt", text }
+      },
+      thread: async (posts: string[], _replyTo?: string, opts?: ThreadOpts) => {
+        expect(opts).toEqual({
+          media: ["/tmp/thread-card.png"],
+          mediaAlt: ["Alt text for the thread card"],
+        })
+        return posts.map((text, idx) => ({
+          platform: "bsky",
+          id: `thread-with-alt-${idx + 1}`,
+          uri: `at://thread-with-alt-${idx + 1}`,
+          text,
+        }))
+      },
+    })
+
+    getPlatformAsyncMock.mockResolvedValue(bsky)
+
+    writeFileSync(
+      join(testDir, "outbox-bsky.yaml"),
+      stringify({
+        dispatch: [
+          {
+            post: {
+              platform: "bsky",
+              text: "Post with media alt",
+              media: ["/tmp/card.png"],
+              mediaAlt: ["Alt text for the card"],
+            },
+          },
+          {
+            thread: {
+              platform: "bsky",
+              posts: ["Thread with media alt"],
+              media: ["/tmp/thread-card.png"],
+              mediaAlt: ["Alt text for the thread card"],
+            },
+          },
+        ],
+      }),
+    )
+
+    await dispatch({ file: "outbox-bsky.yaml" })
+
+    const postDispatchEvents = runHooksMock.mock.calls
+      .filter(([, lifecycle]) => lifecycle === "postDispatch")
+      .map(([, , ctx]) => ctx.event)
+
+    expect(postDispatchEvents).toEqual(["post", "thread"])
   })
 
   it("fires onError hooks with the correct target platform for per-platform post failures", async () => {

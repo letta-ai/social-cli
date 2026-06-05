@@ -161,14 +161,19 @@ import type { SendTweetV2Params } from "twitter-api-v2"
 type MediaIds = NonNullable<NonNullable<SendTweetV2Params["media"]>["media_ids"]>
 
 /** Upload media files to X via v1 API and return media IDs for v2 tweets. */
-async function uploadMediaX(client: TwitterApi, mediaPaths: string[]): Promise<MediaIds | undefined> {
+async function uploadMediaX(client: TwitterApi, mediaPaths: string[], mediaAlt: string[] = []): Promise<MediaIds | undefined> {
   // X allows 1-4 media per tweet
   const paths = mediaPaths.slice(0, 4)
   if (paths.length === 0) return undefined
 
   const mediaIds: string[] = []
-  for (const filePath of paths) {
+  for (let idx = 0; idx < paths.length; idx++) {
+    const filePath = paths[idx]
     const mediaId = await withRetry(() => client.v1.uploadMedia(filePath))
+    const altText = mediaAlt[idx]
+    if (altText) {
+      await withRetry(() => client.v1.createMediaMetadata(mediaId, { alt_text: { text: altText } }))
+    }
     mediaIds.push(mediaId)
   }
 
@@ -183,7 +188,7 @@ export const x: SocialPlatform = {
     const client = getClient()
 
     const mediaIds = opts?.media && opts.media.length > 0
-      ? await uploadMediaX(client, opts.media) : undefined
+      ? await uploadMediaX(client, opts.media, opts.mediaAlt) : undefined
 
     const res = await withRetry(() =>
       client.v2.tweet(text, mediaIds ? { media: { media_ids: mediaIds } } : undefined),
@@ -199,7 +204,7 @@ export const x: SocialPlatform = {
     const client = getClient()
 
     const mediaIds = opts?.media && opts.media.length > 0
-      ? await uploadMediaX(client, opts.media) : undefined
+      ? await uploadMediaX(client, opts.media, opts.mediaAlt) : undefined
 
     const res = await withRetry(() =>
       client.v2.reply(text, targetId, mediaIds ? { media: { media_ids: mediaIds } } : undefined),
@@ -218,7 +223,7 @@ export const x: SocialPlatform = {
 
     // Upload media once, attach to first post only
     const mediaIds = opts?.media && opts.media.length > 0
-      ? await uploadMediaX(client, opts.media) : undefined
+      ? await uploadMediaX(client, opts.media, opts.mediaAlt) : undefined
 
     for (let idx = 0; idx < posts.length; idx++) {
       const text = posts[idx]

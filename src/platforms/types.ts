@@ -8,6 +8,8 @@ export interface PostOpts {
   quoteId?: string
   /** Media attachment paths. */
   media?: string[]
+  /** Alt text for media attachments, aligned by index with `media`. */
+  mediaAlt?: string[]
 }
 
 export interface PostResult {
@@ -20,6 +22,8 @@ export interface PostResult {
 export interface ThreadOpts {
   /** Media file paths to attach to the first post. */
   media?: string[]
+  /** Alt text for media attachments, aligned by index with `media`. */
+  mediaAlt?: string[]
 }
 
 export interface AnnotateOpts {
