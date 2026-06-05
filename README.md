@@ -157,6 +157,10 @@ dispatch:
       platform: bsky
       id: "at://did:plc:xxx/app.bsky.feed.post/abc"
       text: "Thanks for the mention"
+      media:
+        - /tmp/card.png
+      mediaAlt:
+        - "A small card reading: thanks for the mention"
 
   - post:
       text: "Hello from social-cli"
@@ -171,6 +175,10 @@ dispatch:
       posts:
         - "Thread post 1"
         - "Thread post 2"
+      media:
+        - /tmp/thread-card.png
+      mediaAlt:
+        - "Title card for the thread"
 
   - like:
       platform: bsky
@@ -242,7 +250,7 @@ The repo includes example scripts in `hooks/`:
 
 ### Bluesky + X
 
-The core social platforms. Post, reply, thread, like, follow, search, and read feeds. Character limits: 300 (Bluesky), 280 (X). Media attachments supported on both via `-m`.
+The core social platforms. Post, reply, thread, like, follow, search, and read feeds. Character limits: 300 (Bluesky), 280 (X). Media attachments supported on both via `-m`; provide accessibility descriptions with repeated `--media-alt` values in the same order as the media files.
 
 ### Semble
 

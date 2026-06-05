@@ -142,6 +142,10 @@ dispatch:
       platform: bsky
       id: "at://did:plc:xxx/app.bsky.feed.post/abc"
       text: "Great question. Here's what I think..."
+      media:
+        - /tmp/card.png
+      mediaAlt:
+        - "A small card with the reply's main point"
 
   # Post to one or more platforms
   - post:
@@ -166,6 +170,10 @@ dispatch:
         - "1/ I've been thinking about memory in AI systems."
         - "2/ The key insight is that persistence changes behavior."
         - "3/ When you remember, you commit. When you forget, you drift."
+      media:
+        - /tmp/thread-card.png
+      mediaAlt:
+        - "Title card for a thread about memory in AI systems"
 
   # Annotate a URL (Bluesky only, creates a margin annotation)
   - annotate:
