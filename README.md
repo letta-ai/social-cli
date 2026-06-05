@@ -145,7 +145,7 @@ social-cli whoami                            # your account info (all platforms)
 social-cli rate-limits                       # rate limit status
 ```
 
-All read commands output YAML to stdout (except `feed` which defaults to a file).
+All read commands output YAML to stdout (except `feed` which defaults to a file). `feed`, `search`, and `posts` emit a bare YAML array of items; state files such as `inbox-{platform}.yaml` emit mappings like `notifications:`. Consumers should normalize the YAML root before reading keys: use the array directly when `Array.isArray(root)`, and only then fall back to keyed arrays such as `notifications`, `posts`, `results`, `items`, or `feed`.
 
 ## Outbox format
 

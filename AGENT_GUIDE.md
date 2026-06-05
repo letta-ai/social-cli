@@ -295,7 +295,22 @@ social-cli whoami
 social-cli rate-limits
 ```
 
-All research commands output YAML to stdout (except `feed` which defaults to `feed.yaml` — use `-o -` for stdout).
+All research commands output YAML to stdout (except `feed` which defaults to `feed.yaml` — use `-o -` for stdout). `feed`, `search`, and `posts` return a bare YAML array of items. Inbox/state files return mappings such as `notifications:`. Agent helper scripts must normalize the parsed YAML root before accessing keys:
+
+```python
+root = yaml.safe_load(text) or []
+if isinstance(root, list):
+    items = root
+elif isinstance(root, dict):
+    items = next(
+        (root[key] for key in ("notifications", "posts", "results", "items", "feed") if isinstance(root.get(key), list)),
+        [],
+    )
+else:
+    items = []
+```
+
+Do not assume every parsed social-cli YAML value has `.get(...)`; bare arrays from read commands will fail that pattern.
 
 ## Character Limits
 
