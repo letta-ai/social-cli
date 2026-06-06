@@ -295,7 +295,19 @@ social-cli whoami
 social-cli rate-limits
 ```
 
-All research commands output YAML to stdout (except `feed` which defaults to `feed.yaml` — use `-o -` for stdout). `feed`, `search`, and `posts` return a bare YAML array of items. Inbox/state files return mappings such as `notifications:`. Agent helper scripts must normalize the parsed YAML root before accessing keys:
+All research commands output YAML to stdout (except `feed` which defaults to `feed.yaml` — use `-o -` for stdout). `feed`, `search`, and `posts` return a bare YAML array of items. Inbox/state files return mappings such as `notifications:`. Agent helper scripts must normalize the parsed YAML root before accessing keys.
+
+TypeScript helpers inside this repo can use the shared normalizer:
+
+```ts
+import { parse } from "yaml"
+import { normalizeReadOutputItems } from "./util/read-output.js"
+
+const root = parse(stdout)
+const items = normalizeReadOutputItems(root)
+```
+
+Python helpers should use the same shape check explicitly:
 
 ```python
 root = yaml.safe_load(text) or []

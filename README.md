@@ -147,6 +147,16 @@ social-cli rate-limits                       # rate limit status
 
 All read commands output YAML to stdout (except `feed` which defaults to a file). `feed`, `search`, and `posts` emit a bare YAML array of items; state files such as `inbox-{platform}.yaml` emit mappings like `notifications:`. Consumers should normalize the YAML root before reading keys: use the array directly when `Array.isArray(root)`, and only then fall back to keyed arrays such as `notifications`, `posts`, `results`, `items`, or `feed`.
 
+For TypeScript helpers inside this repo, use the normalizer instead of assuming a mapping root:
+
+```ts
+import { parse } from "yaml"
+import { normalizeReadOutputItems } from "./util/read-output.js"
+
+const root = parse(stdout)
+const items = normalizeReadOutputItems(root)
+```
+
 ## Outbox format
 
 Agents write decisions to `outbox-{platform}.yaml` in the active state directory for dispatch:
