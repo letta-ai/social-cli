@@ -22,6 +22,8 @@ import type {
   ThreadOpts,
   ProfileInfo,
   EmbedInfo,
+  OwnPostReply,
+  ThreadContextItem,
 } from "./types.js"
 import { loadConfig, loadCredentials } from "../config.js"
 import { withRetry } from "../util/retry.js"
@@ -281,6 +283,76 @@ function readJpegDimensions(buf: Buffer): { width: number; height: number } | un
     i += 2 + segLen
   }
   return undefined
+}
+
+interface BskyThreadNode {
+  post?: any
+  parent?: BskyThreadNode
+  replies?: BskyThreadNode[]
+}
+
+function postText(post: any): string {
+  return (post?.record as any)?.text ?? ""
+}
+
+function postTimestamp(post: any): string {
+  return post?.indexedAt ?? (post?.record as any)?.createdAt ?? ""
+}
+
+function contextEntryFromPost(post: any): ThreadContextItem {
+  return {
+    id: post?.uri,
+    author: post?.author?.handle ?? "unknown",
+    text: postText(post),
+  }
+}
+
+export function collectOwnPostRepliesFromBskyThread(
+  thread: BskyThreadNode | undefined,
+  ownDid: string,
+  scannedOwnPost?: { id: string; text?: string },
+  repliesLimit = 100,
+): OwnPostReply[] {
+  const replies: OwnPostReply[] = []
+  if (!thread?.post) return replies
+
+  const rootId = thread.post.uri
+  const ownPostId = scannedOwnPost?.id ?? rootId
+  const ownPostText = scannedOwnPost?.text ?? postText(thread.post)
+
+  const walk = (node: BskyThreadNode, ancestors: any[]): void => {
+    if (!node?.post || replies.length >= repliesLimit) return
+
+    const post = node.post
+    const uri = post.uri
+    const authorDid = post.author?.did
+
+    if (uri !== ownPostId && authorDid !== ownDid) {
+      const parent = ancestors[ancestors.length - 1]
+      replies.push({
+        platform: "bsky",
+        id: uri,
+        author: post.author?.handle ?? "unknown",
+        authorId: authorDid,
+        text: postText(post),
+        timestamp: postTimestamp(post),
+        ownPostId,
+        ownPostText,
+        rootId,
+        parentId: parent?.uri,
+        parentAuthor: parent?.author?.handle,
+        threadContext: ancestors.map(contextEntryFromPost),
+        embed: extractEmbed(post.embed),
+      })
+    }
+
+    for (const child of node.replies ?? []) {
+      walk(child, [...ancestors, post])
+    }
+  }
+
+  walk(thread, [])
+  return replies
 }
 
 /**
@@ -666,6 +738,56 @@ export const bluesky: SocialPlatform = {
         repostCount: item.post.repostCount ?? 0,
         embed: extractEmbed(item.post.embed),
       }))
+    })
+  },
+
+  async ownPostReplies(opts?: {
+    handle?: string
+    limit?: number
+    repliesLimit?: number
+    depth?: number
+  }): Promise<OwnPostReply[]> {
+    return withSession(async (agent) => {
+      const limit = opts?.limit ?? 12
+      const depth = opts?.depth ?? 5
+      const repliesLimit = opts?.repliesLimit ?? 100
+
+      const profile = opts?.handle
+        ? await agent.app.bsky.actor.getProfile({ actor: opts.handle.replace(/^@/, "") })
+        : await agent.app.bsky.actor.getProfile({ actor: agent.did! })
+      const handle = profile.data.handle
+      const ownDid = profile.data.did
+
+      const feed = await agent.app.bsky.feed.getAuthorFeed({ actor: handle, limit })
+      const ownPosts = feed.data.feed.map((item) => item.post)
+      const replies: OwnPostReply[] = []
+      const seen = new Set<string>()
+
+      for (const post of ownPosts) {
+        if (replies.length >= repliesLimit) break
+        if ((post.replyCount ?? 0) <= 0) continue
+
+        const threadRes = await agent.app.bsky.feed.getPostThread({
+          uri: post.uri,
+          depth,
+          parentHeight: 0,
+        })
+        const found = collectOwnPostRepliesFromBskyThread(
+          threadRes.data.thread as any,
+          ownDid,
+          { id: post.uri, text: postText(post) },
+          repliesLimit - replies.length,
+        )
+
+        for (const reply of found) {
+          if (seen.has(reply.id)) continue
+          seen.add(reply.id)
+          replies.push(reply)
+          if (replies.length >= repliesLimit) break
+        }
+      }
+
+      return replies
     })
   },
 

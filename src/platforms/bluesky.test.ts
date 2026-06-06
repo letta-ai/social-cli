@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest"
-import { extractEmbed } from "./bluesky.js"
+import { collectOwnPostRepliesFromBskyThread, extractEmbed } from "./bluesky.js"
 
 describe("extractEmbed", () => {
   it("returns undefined for missing or untyped input", () => {
@@ -182,5 +182,65 @@ describe("extractEmbed", () => {
 
   it("returns undefined for unrecognized embed types", () => {
     expect(extractEmbed({ $type: "app.bsky.embed.something.unknown" })).toBeUndefined()
+  })
+})
+
+describe("collectOwnPostRepliesFromBskyThread", () => {
+  const ownDid = "did:plc:own"
+
+  function post(uri: string, did: string, handle: string, text: string) {
+    return {
+      uri,
+      author: { did, handle },
+      record: { text },
+      indexedAt: "2026-01-01T00:00:00Z",
+    }
+  }
+
+  it("collects external replies under an own post and skips own thread children", () => {
+    const thread = {
+      post: post("at://own/root", ownDid, "void.example", "root post"),
+      replies: [
+        { post: post("at://alice/reply", "did:plc:alice", "alice.example", "first reply"), replies: [] },
+        {
+          post: post("at://own/followup", ownDid, "void.example", "own followup"),
+          replies: [
+            { post: post("at://bob/reply", "did:plc:bob", "bob.example", "nested reply"), replies: [] },
+          ],
+        },
+      ],
+    }
+
+    const replies = collectOwnPostRepliesFromBskyThread(
+      thread,
+      ownDid,
+      { id: "at://own/root", text: "root post" },
+    )
+
+    expect(replies.map((reply) => reply.id)).toEqual(["at://alice/reply", "at://bob/reply"])
+    expect(replies[0]).toMatchObject({
+      platform: "bsky",
+      author: "alice.example",
+      authorId: "did:plc:alice",
+      ownPostId: "at://own/root",
+      rootId: "at://own/root",
+      parentId: "at://own/root",
+      parentAuthor: "void.example",
+      threadContext: [{ id: "at://own/root", author: "void.example", text: "root post" }],
+    })
+    expect(replies[1].threadContext?.map((item) => item.id)).toEqual(["at://own/root", "at://own/followup"])
+  })
+
+  it("deduplicates by caller limit", () => {
+    const thread = {
+      post: post("at://own/root", ownDid, "void.example", "root post"),
+      replies: [
+        { post: post("at://alice/one", "did:plc:alice", "alice.example", "one"), replies: [] },
+        { post: post("at://bob/two", "did:plc:bob", "bob.example", "two"), replies: [] },
+      ],
+    }
+
+    expect(collectOwnPostRepliesFromBskyThread(thread, ownDid, undefined, 1).map((reply) => reply.id))
+      .toEqual(["at://alice/one"])
   })
 })

@@ -17,6 +17,8 @@ import type {
   RateLimitInfo,
   ProfileInfo,
   ThreadOpts,
+  OwnPostReply,
+  ThreadContextItem,
 } from "./types.js"
 import { loadConfig, loadCredentials } from "../config.js"
 import { withRetry } from "../util/retry.js"
@@ -117,6 +119,35 @@ async function hydrateContextTweets(
   }
 }
 
+async function hydrateReplyAncestorChain(
+  client: TwitterApi,
+  tweets: Array<Pick<TweetV2, "referenced_tweets">>,
+  tweetsById: Map<string, XContextTweet>,
+  authors: Record<string, string>,
+): Promise<void> {
+  let frontier = [...new Set(
+    tweets
+      .map((tweet) => repliedToId(tweet))
+      .filter((id): id is string => Boolean(id)),
+  )]
+  const seen = new Set<string>()
+
+  for (let depth = 0; frontier.length > 0 && depth < MAX_THREAD_CONTEXT_DEPTH; depth++) {
+    const current = frontier.filter((id) => !seen.has(id))
+    if (current.length === 0) break
+    for (const id of current) seen.add(id)
+
+    await hydrateContextTweets(client, current, tweetsById, authors)
+
+    frontier = [...new Set(
+      current
+        .map((id) => tweetsById.get(id))
+        .map((tweet) => tweet ? repliedToId(tweet) : undefined)
+        .filter((id): id is string => Boolean(id)),
+    )]
+  }
+}
+
 function buildReplyContext(
   tweet: Pick<TweetV2, "referenced_tweets">,
   tweetsById: Map<string, XContextTweet>,
@@ -154,6 +185,33 @@ function buildThreadContext(
   }
 
   return context.map(({ author, text }) => ({ author, text }))
+}
+
+function buildThreadContextItems(
+  tweet: Pick<TweetV2, "referenced_tweets">,
+  tweetsById: Map<string, XContextTweet>,
+  authors: Record<string, string>,
+): ThreadContextItem[] {
+  return buildReplyContext(tweet, tweetsById, authors).map(({ id, author, text }) => ({ id, author, text }))
+}
+
+function chainContainsTweet(
+  tweet: Pick<TweetV2, "referenced_tweets">,
+  targetId: string,
+  tweetsById: Map<string, XContextTweet>,
+): boolean {
+  const seen = new Set<string>()
+  let currentId = repliedToId(tweet)
+
+  while (currentId && !seen.has(currentId)) {
+    if (currentId === targetId) return true
+    seen.add(currentId)
+    const current = tweetsById.get(currentId)
+    if (!current) break
+    currentId = repliedToId(current)
+  }
+
+  return false
 }
 
 import type { SendTweetV2Params } from "twitter-api-v2"
@@ -427,6 +485,88 @@ export const x: SocialPlatform = {
       replyCount: (t.public_metrics as any)?.reply_count ?? 0,
       repostCount: (t.public_metrics as any)?.retweet_count ?? 0,
     }))
+  },
+
+  async ownPostReplies(opts?: {
+    handle?: string
+    limit?: number
+    repliesLimit?: number
+  }): Promise<OwnPostReply[]> {
+    const client = getClient()
+    const limit = opts?.limit ?? 12
+    const repliesLimit = opts?.repliesLimit ?? 100
+
+    const cleanHandle = opts?.handle?.replace(/^@/, "")
+    const user = cleanHandle
+      ? await withRetry(() => client.v2.userByUsername(cleanHandle))
+      : await withRetry(() => client.v2.me())
+    if (!user.data) throw new Error(`User not found: ${opts?.handle ?? "authenticated account"}`)
+
+    const handle = user.data.username ?? cleanHandle ?? user.data.id
+    const ownUserId = user.data.id
+    const timeline = await withRetry(() => client.v2.userTimeline(ownUserId, {
+      max_results: Math.max(10, Math.min(limit, 100)),
+      "tweet.fields": ["created_at", "author_id", "conversation_id", "public_metrics", "referenced_tweets"],
+      expansions: ["author_id", "referenced_tweets.id", "referenced_tweets.id.author_id"],
+    }))
+
+    const authors: Record<string, string> = { [ownUserId]: handle }
+    addUsersToAuthorMap(authors, timeline.includes?.users)
+
+    const tweetsById = new Map<string, XContextTweet>()
+    addTweetsToMap(tweetsById, timeline.includes?.tweets)
+    addTweetsToMap(tweetsById, timeline.data?.data)
+
+    const replies: OwnPostReply[] = []
+    const seen = new Set<string>()
+
+    for (const ownTweet of timeline.data?.data ?? []) {
+      if (replies.length >= repliesLimit) break
+      const replyCount = (ownTweet.public_metrics as any)?.reply_count ?? 0
+      if (replyCount <= 0) continue
+
+      const conversationId = ownTweet.conversation_id ?? ownTweet.id
+      const searchLimit = Math.max(10, Math.min(repliesLimit, 100))
+      const result = await withRetry(() => client.v2.search(`conversation_id:${conversationId}`, {
+        max_results: searchLimit,
+        "tweet.fields": ["created_at", "author_id", "conversation_id", "referenced_tweets"],
+        expansions: ["author_id", "referenced_tweets.id", "referenced_tweets.id.author_id"],
+      }))
+
+      addUsersToAuthorMap(authors, result.includes?.users)
+      addTweetsToMap(tweetsById, result.includes?.tweets)
+      addTweetsToMap(tweetsById, result.data?.data)
+
+      const candidateTweets = result.data?.data ?? []
+      await hydrateReplyAncestorChain(client, candidateTweets, tweetsById, authors)
+
+      for (const tweet of candidateTweets) {
+        if (replies.length >= repliesLimit) break
+        if (tweet.id === ownTweet.id || tweet.author_id === ownUserId || seen.has(tweet.id)) continue
+        if (!chainContainsTweet(tweet, ownTweet.id, tweetsById)) continue
+
+        const parentId = repliedToId(tweet)
+        const parent = parentId ? tweetsById.get(parentId) : undefined
+        const context = buildThreadContextItems(tweet, tweetsById, authors)
+        replies.push({
+          platform: "x",
+          id: tweet.id,
+          author: authors[tweet.author_id ?? ""] ?? tweet.author_id ?? "unknown",
+          authorId: tweet.author_id,
+          text: tweet.text,
+          timestamp: tweet.created_at ?? "",
+          ownPostId: ownTweet.id,
+          ownPostText: ownTweet.text,
+          rootId: conversationId,
+          parentId,
+          parentAuthor: parent ? authors[parent.author_id ?? ""] : undefined,
+          threadContext: context,
+        })
+        seen.add(tweet.id)
+      }
+    }
+
+    return replies
   },
 
   async follow(handle: string): Promise<void> {

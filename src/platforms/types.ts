@@ -65,6 +65,13 @@ export interface Notification {
   userContext?: string
   media?: NotificationMedia[]
   embed?: EmbedInfo
+  /** For own-post reply sweeps: recent account-owned post that led to this reply. */
+  ownPostId?: string
+  ownPostText?: string
+  /** Thread/conversation root and direct parent when known. */
+  rootId?: string
+  parentId?: string
+  parentAuthor?: string
   /** True if the account owner has blocked this author. */
   blocked?: boolean
 }
@@ -113,6 +120,35 @@ export interface FeedItem {
   likeCount?: number
   replyCount?: number
   repostCount?: number
+  embed?: EmbedInfo
+}
+
+export interface ThreadContextItem {
+  id?: string
+  author: string
+  text: string
+}
+
+export interface OwnPostReply {
+  platform: string
+  /** Reply post/tweet id. */
+  id: string
+  /** Reply author handle/username when available. */
+  author: string
+  /** Permanent reply author id (DID for Bluesky, user id for X) when available. */
+  authorId?: string
+  text: string
+  timestamp: string
+  /** Recent own post/tweet that was scanned and led to this reply. */
+  ownPostId: string
+  ownPostText?: string
+  /** Thread/conversation root id when known. */
+  rootId?: string
+  /** Direct parent id when known. */
+  parentId?: string
+  parentAuthor?: string
+  /** Ancestors from the scanned own post down to the direct parent. */
+  threadContext?: ThreadContextItem[]
   embed?: EmbedInfo
 }
 
@@ -178,6 +214,13 @@ export interface SocialPlatform {
   profile?(handle: string): Promise<ProfileInfo>
   /** Fetch recent posts by a user. */
   userPosts?(handle: string, limit?: number): Promise<FeedItem[]>
+  /** Fetch external replies in threads under recent posts by this account. */
+  ownPostReplies?(opts?: {
+    handle?: string
+    limit?: number
+    repliesLimit?: number
+    depth?: number
+  }): Promise<OwnPostReply[]>
   /** Attach an annotation to a URL/post. Bluesky-specific. */
   annotate?(targetId: string, text: string, opts?: AnnotateOpts): Promise<PostResult>
   /** Follow a user by handle or DID. */

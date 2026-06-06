@@ -140,6 +140,7 @@ social-cli search "query" -p x -n 10        # works on X too
 social-cli feed -p bsky -n 20               # timeline → feed.yaml (or -o - for stdout)
 social-cli feed --feed "at://did:.../app.bsky.feed.generator/name" -n 10  # custom feed
 social-cli posts alice.bsky.social -n 10     # user's recent posts → stdout YAML
+social-cli inbox own-replies -p bsky --unhandled  # replies under your own recent posts → stdout YAML
 social-cli profile alice.bsky.social         # user profile → stdout YAML
 social-cli whoami                            # your account info (all platforms)
 social-cli rate-limits                       # rate limit status
@@ -156,6 +157,33 @@ import { normalizeReadOutputItems } from "./util/read-output.js"
 const root = parse(stdout)
 const items = normalizeReadOutputItems(root)
 ```
+
+### Own-post reply sweeps
+
+Platform notification APIs do not always surface every reply to your own posts,
+especially non-mention replies. `inbox own-replies` scans recent posts by the
+authenticated account, follows threads/conversations with replies, and returns
+external replies as normal notification-shaped YAML with `type: own_reply`:
+
+```bash
+social-cli inbox own-replies -p bsky -p x --unhandled -n 12
+```
+
+Use `--write` to merge those generated notifications into the active platform
+inboxes so the standard agent loop can decide and `dispatch` can mark them
+processed:
+
+```bash
+social-cli inbox own-replies -p bsky -p x --unhandled --write --quiet
+social-cli check || exit 0
+# agent reads stateDir/inbox-{platform}.yaml and writes outbox decisions
+social-cli dispatch
+```
+
+`--unhandled` filters replies already recorded in `processed-{platform}.yaml` or
+`sent_ledger-{platform}.yaml`; existing inbox items are not duplicated when
+`--write` is used. `--depth` controls nested Bluesky thread traversal, and
+`--max-replies` caps generated items per platform.
 
 ## Outbox format
 
