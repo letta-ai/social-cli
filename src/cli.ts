@@ -110,6 +110,70 @@ program
     await check({ threshold: parseInt(opts.threshold), platform: opts.platform })
   })
 
+// inbox: Generate/inspect inbox surfaces beyond ordinary notifications.
+const inbox = new Command("inbox")
+  .description("Inspect or populate generated inbox surfaces")
+
+inbox
+  .command("own-replies")
+  .description("Find external replies under recent posts by the authenticated account")
+  .option("-p, --platform <platform>", "Platform to scan; repeat for multiple (default: all)", collectOption, [])
+  .option("--handle <handle>", "Account handle/username to scan (default: authenticated account)")
+  .option("-n, --limit <number>", "Recent account-owned posts to scan per platform", "12")
+  .option("--max-replies <number>", "Maximum replies to return per platform", "100")
+  .option("--depth <number>", "Thread depth for platforms with nested replies", "5")
+  .option("--unhandled", "Filter out replies already present in processed/sent ledgers")
+  .option("--write", "Merge found replies into stateDir/inbox-{platform}.yaml")
+  .option("--quiet", "Suppress output when no replies are found or written")
+  .option("-o, --output <file>", "Output YAML file when not using --write; use - for stdout", "-")
+  .option("--state-dir <path>", "Override state directory")
+  .action(async (opts) => {
+    const { ownRepliesInboxCommand } = await import("./commands/inbox.js")
+    await ownRepliesInboxCommand({
+      platforms: opts.platform,
+      handle: opts.handle,
+      limit: parseInt(opts.limit),
+      repliesLimit: parseInt(opts.maxReplies),
+      depth: parseInt(opts.depth),
+      unhandled: opts.unhandled,
+      write: opts.write,
+      quiet: opts.quiet,
+      output: opts.output,
+      stateDir: opts.stateDir,
+    })
+  })
+
+program.addCommand(inbox)
+
+program
+  .command("own-replies")
+  .description("Alias for `inbox own-replies`")
+  .option("-p, --platform <platform>", "Platform to scan; repeat for multiple (default: all)", collectOption, [])
+  .option("--handle <handle>", "Account handle/username to scan (default: authenticated account)")
+  .option("-n, --limit <number>", "Recent account-owned posts to scan per platform", "12")
+  .option("--max-replies <number>", "Maximum replies to return per platform", "100")
+  .option("--depth <number>", "Thread depth for platforms with nested replies", "5")
+  .option("--unhandled", "Filter out replies already present in processed/sent ledgers")
+  .option("--write", "Merge found replies into stateDir/inbox-{platform}.yaml")
+  .option("--quiet", "Suppress output when no replies are found or written")
+  .option("-o, --output <file>", "Output YAML file when not using --write; use - for stdout", "-")
+  .option("--state-dir <path>", "Override state directory")
+  .action(async (opts) => {
+    const { ownRepliesInboxCommand } = await import("./commands/inbox.js")
+    await ownRepliesInboxCommand({
+      platforms: opts.platform,
+      handle: opts.handle,
+      limit: parseInt(opts.limit),
+      repliesLimit: parseInt(opts.maxReplies),
+      depth: parseInt(opts.depth),
+      unhandled: opts.unhandled,
+      write: opts.write,
+      quiet: opts.quiet,
+      output: opts.output,
+      stateDir: opts.stateDir,
+    })
+  })
+
 // search: Search posts
 program
   .command("search")
