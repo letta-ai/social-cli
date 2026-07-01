@@ -351,19 +351,23 @@ export async function sync(opts: {
 
     try {
       const platform = await getPlatformAsync(platformName)
-      // Fetch without passing a cursor — we filter by timestamp instead.
+      // Pass the stored cursor to the platform so it can use since_id (X) or
+      // equivalent server-side filtering. Fall back to client-side timestamp
+      // filtering for platforms that don't support cursors.
       // Disable unreadOnly on --clear so we get the full recent history as baseline.
       const result = await platform.notifications({
         limit: opts.limit ?? 50,
         unreadOnly: opts.clear ? false : (opts.unreadOnly ?? true),
+        cursor,
       })
 
       const cutoff = cursor ? new Date(cursor).getTime() : 0
 
       for (const n of result.notifications) {
         const itemTime = new Date(n.timestamp).getTime()
-        // Skip items older than the cutoff
-        if (cutoff > 0 && itemTime <= cutoff) continue
+        // Skip items older than the cutoff (client-side fallback for
+        // platforms that don't support server-side cursor filtering)
+        if (cutoff > 0 && itemTime < cutoff) continue
         if (!existingIds.has(n.id)) {
           allNotifs.push(n)
           existingIds.add(n.id)
@@ -371,9 +375,11 @@ export async function sync(opts: {
         }
       }
 
-      // Track the newest timestamp seen as the cursor for next sync.
-      // result.notifications are sorted newest-first, so the first item is newest.
-      if (result.notifications.length > 0) {
+      // Use the platform's cursor if provided (e.g., X returns a tweet ID for
+      // since_id). Fall back to the newest notification's timestamp otherwise.
+      if (result.cursor) {
+        cursor = result.cursor
+      } else if (result.notifications.length > 0) {
         cursor = result.notifications[0].timestamp
       }
     } catch (err) {
