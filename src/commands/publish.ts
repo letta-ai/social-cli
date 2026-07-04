@@ -532,22 +532,6 @@ function generateUuidV7(): string {
 }
 
 /**
- * Flatten page-blocks → plaintext for the document-level `textContent` field.
- * Used by indexers (leaflet-search etc.) for full-text search.
- */
-function blocksToTextContent(blocks: LeafletPageBlock[]): string {
-  return blocks
-    .map(({ block }) => {
-      if (block.$type === "pub.leaflet.blocks.image") {
-        return block.alt ?? ""
-      }
-      return block.plaintext
-    })
-    .filter(Boolean)
-    .join("\n")
-}
-
-/**
  * Parse YAML-ish frontmatter (key: value pairs only, no nested structures).
  * Reuses the same pattern as src/commands/blog.ts.
  */
@@ -702,7 +686,13 @@ async function publishDocument(opts: PublishOptions): Promise<PublishResult> {
   if (blocks.length === 0) {
     return { success: false, error: "No content blocks parsed from body" }
   }
-  const textContent = blocksToTextContent(blocks)
+  // Store the *source markdown* as `textContent` so downstream readers can
+  // render it at full fidelity — headings, lists, and fenced code blocks all
+  // survive. The leaflet `content` blocks (below) remain for appviews that
+  // render structured content, but markdown→block conversion is lossy (it
+  // flattens fenced code onto one line), so the raw markdown is the source of
+  // truth for consumers that render the record themselves.
+  const textContent = body
 
   // Tags array (comma-separated → trimmed array, drop empties)
   const tags = tagsRaw
