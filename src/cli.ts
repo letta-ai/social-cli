@@ -265,6 +265,7 @@ program
   .option("-p, --platform <platform>", "Platform", "bsky")
   .option("-m, --media <paths...>", "Media file paths to attach to first post")
   .option("--media-alt <text>", "Alt text for attached media; repeat to match media order", collectOption, [])
+  .option("--reply-to <id>", "Post ID to reply to (roots the thread as a reply)")
   .action(async (posts, opts) => {
     const { validateTexts } = await import("./util/validate.js")
     validateTexts(opts.platform, posts)
@@ -273,7 +274,7 @@ program
 
     const { getPlatformAsync } = await import("./platforms/index.js")
     const platform = await getPlatformAsync(opts.platform)
-    const results = await platform.thread(posts, undefined, {
+    const results = await platform.thread(posts, opts.replyTo, {
       ...media,
     })
     for (const r of results) console.log(`Posted: ${r.id}`)
