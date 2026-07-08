@@ -36,7 +36,7 @@ ATPROTO_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
 ATPROTO_PDS=https://bsky.social        # optional, defaults to bsky.social
 
 # X / Twitter (OAuth 1.0a user auth)
-# X developer portal → Keys and tokens → OAuth 1.0 Keys
+# https://console.x.com/ → Keys and tokens → OAuth 1.0 Keys
 # Consumer Key         → X_API_KEY
 # Consumer Secret      → X_API_SECRET
 # Access Token         → X_ACCESS_TOKEN
@@ -47,7 +47,7 @@ X_ACCESS_TOKEN=...
 X_ACCESS_TOKEN_SECRET=...
 ```
 
-For the X integration, use the **OAuth 1.0 Keys** section in the X developer portal. Do **not** use the OAuth 2.0 client ID / client secret fields for `social-cli`.
+For the X integration, use the **OAuth 1.0 Keys** section in the [X developer console](https://console.x.com/). Do **not** use the OAuth 2.0 client ID / client secret fields for `social-cli`.
 
 `X_BEARER_TOKEN` is not part of the normal `social-cli` X setup flow and is not used by the main X provider path.
 
