@@ -111,6 +111,109 @@ export interface DownloadResult {
   contentType: string | null
 }
 
+export interface ImageInfo {
+  width: number
+  height: number
+  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+}
+
+/**
+ * Read image metadata from the file signature and header rather than its name.
+ * Throws when the bytes are not a supported PNG, JPEG, GIF, or WebP image.
+ */
+export function getImageInfo(data: Buffer): ImageInfo {
+  // PNG: signature followed by IHDR (width @ 16, height @ 20).
+  if (
+    data.length >= 24 &&
+    data[0] === 0x89 &&
+    data[1] === 0x50 &&
+    data[2] === 0x4e &&
+    data[3] === 0x47 &&
+    data[4] === 0x0d &&
+    data[5] === 0x0a &&
+    data[6] === 0x1a &&
+    data[7] === 0x0a &&
+    data.toString("ascii", 12, 16) === "IHDR"
+  ) {
+    return checkedImageInfo(data.readUInt32BE(16), data.readUInt32BE(20), "image/png")
+  }
+
+  // JPEG: starts FFD8, then scan for any Start Of Frame marker.
+  if (data.length >= 4 && data[0] === 0xff && data[1] === 0xd8) {
+    let offset = 2
+    while (offset < data.length - 8) {
+      if (data[offset] !== 0xff) {
+        offset++
+        continue
+      }
+
+      const marker = data[offset + 1]
+      const isStartOfFrame =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      if (isStartOfFrame) {
+        return checkedImageInfo(
+          data.readUInt16BE(offset + 7),
+          data.readUInt16BE(offset + 5),
+          "image/jpeg",
+        )
+      }
+
+      if (offset + 3 >= data.length) break
+      const segmentLength = data.readUInt16BE(offset + 2)
+      if (segmentLength < 2) break
+      offset += 2 + segmentLength
+    }
+  }
+
+  // GIF: logical screen width and height follow the six-byte signature.
+  if (
+    data.length >= 10 &&
+    (data.toString("ascii", 0, 6) === "GIF87a" || data.toString("ascii", 0, 6) === "GIF89a")
+  ) {
+    return checkedImageInfo(data.readUInt16LE(6), data.readUInt16LE(8), "image/gif")
+  }
+
+  // WebP: RIFF....WEBP followed by VP8X, VP8L, or VP8.
+  if (
+    data.length >= 30 &&
+    data.toString("ascii", 0, 4) === "RIFF" &&
+    data.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    const subtype = data.toString("ascii", 12, 16)
+    if (subtype === "VP8X") {
+      const width = (data[24] | (data[25] << 8) | (data[26] << 16)) + 1
+      const height = (data[27] | (data[28] << 8) | (data[29] << 16)) + 1
+      return checkedImageInfo(width, height, "image/webp")
+    }
+    if (subtype === "VP8L") {
+      const b0 = data[21]
+      const b1 = data[22]
+      const b2 = data[23]
+      const b3 = data[24]
+      const width = (((b1 & 0x3f) << 8) | b0) + 1
+      const height = (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6)) + 1
+      return checkedImageInfo(width, height, "image/webp")
+    }
+    if (subtype === "VP8 ") {
+      const width = data.readUInt16LE(26) & 0x3fff
+      const height = data.readUInt16LE(28) & 0x3fff
+      return checkedImageInfo(width, height, "image/webp")
+    }
+  }
+
+  throw new Error("Unsupported image format (only PNG, JPEG, GIF, and WebP)")
+}
+
+function checkedImageInfo(width: number, height: number, mime: ImageInfo["mime"]): ImageInfo {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new Error(`Invalid ${mime} dimensions: ${width}x${height}`)
+  }
+  return { width, height, mime }
+}
+
 /**
  * Stream-download an HTTPS URL to disk, following redirects up to MAX_REDIRECTS.
  * Rejects on HTTP ≥ 400 or redirect loops. Cleans up the partial file on failure.
