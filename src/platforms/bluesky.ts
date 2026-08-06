@@ -6,7 +6,6 @@
 import { Agent, CredentialSession, RichText, AppBskyFeedPost, ComAtprotoRepoStrongRef } from "@atproto/api"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { extname } from "node:path"
 import { request } from "node:https"
 import { request as httpRequest } from "node:http"
 import type {
@@ -26,6 +25,7 @@ import type {
   ThreadContextItem,
 } from "./types.js"
 import { loadConfig, loadCredentials } from "../config.js"
+import { getImageInfo } from "../util/media.js"
 import { withRetry } from "../util/retry.js"
 
 let _agent: Agent | null = null
@@ -201,17 +201,8 @@ async function repostMediaFromPost(agent: Agent, postUri: string): Promise<any> 
       if (!url) continue
 
       const imageBytes = await downloadMedia(url)
-      const ext = url.split(".").pop()?.toLowerCase() ?? "png"
-      const mimeTypes: Record<string, string> = {
-        jpg: "image/jpeg",
-        jpeg: "image/jpeg",
-        png: "image/png",
-        gif: "image/gif",
-        webp: "image/webp",
-      }
-      const encoding = mimeTypes[ext] ?? "image/png"
-
-      const blob = await agent.uploadBlob(imageBytes, { encoding })
+      const info = getImageInfo(imageBytes)
+      const blob = await agent.uploadBlob(imageBytes, { encoding: info.mime })
       images.push({
         alt: img.alt ?? "",
         image: blob.data.blob,
@@ -236,17 +227,8 @@ async function repostMediaFromPost(agent: Agent, postUri: string): Promise<any> 
         if (!url) continue
 
         const imageBytes = await downloadMedia(url)
-        const ext = url.split(".").pop()?.toLowerCase() ?? "png"
-        const mimeTypes: Record<string, string> = {
-          jpg: "image/jpeg",
-          jpeg: "image/jpeg",
-          png: "image/png",
-          gif: "image/gif",
-          webp: "image/webp",
-        }
-        const encoding = mimeTypes[ext] ?? "image/png"
-
-        const blob = await agent.uploadBlob(imageBytes, { encoding })
+        const info = getImageInfo(imageBytes)
+        const blob = await agent.uploadBlob(imageBytes, { encoding: info.mime })
         images.push({
           alt: img.alt ?? "",
           image: blob.data.blob,
@@ -261,27 +243,6 @@ async function repostMediaFromPost(agent: Agent, postUri: string): Promise<any> 
     }
   }
 
-  return undefined
-}
-
-/** Read width/height from a JPEG buffer by scanning for SOF markers. */
-function readJpegDimensions(buf: Buffer): { width: number; height: number } | undefined {
-  let i = 2 // skip SOI
-  while (i < buf.length - 1) {
-    if (buf[i] !== 0xff) return undefined
-    const marker = buf[i + 1]
-    // SOF0 (0xC0) or SOF2 (0xC2) — baseline or progressive
-    if (marker === 0xc0 || marker === 0xc2) {
-      if (i + 9 > buf.length) return undefined
-      const height = buf.readUInt16BE(i + 5)
-      const width = buf.readUInt16BE(i + 7)
-      return { width, height }
-    }
-    // Skip this marker segment
-    if (i + 3 >= buf.length) return undefined
-    const segLen = buf.readUInt16BE(i + 2)
-    i += 2 + segLen
-  }
   return undefined
 }
 
@@ -363,37 +324,14 @@ async function uploadMedia(agent: Agent, mediaPaths: string[], mediaAlt: string[
 
   for (let idx = 0; idx < mediaPaths.length; idx++) {
     const path = mediaPaths[idx]
-    const ext = extname(path).toLowerCase()
-    const mimeTypes: Record<string, string> = {
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".png": "image/png",
-      ".gif": "image/gif",
-      ".webp": "image/webp",
-    }
-    const encoding = mimeTypes[ext] ?? "image/png"
-
     const imageBytes = readFileSync(path)
-    const blob = await agent.uploadBlob(imageBytes, { encoding })
-
-    // Read image dimensions for aspectRatio (PNG: width/height at bytes 16-23)
-    let aspectRatio: { width: number; height: number } | undefined
-    if (ext === ".png" && imageBytes.length > 24) {
-      const width = imageBytes.readUInt32BE(16)
-      const height = imageBytes.readUInt32BE(20)
-      if (width > 0 && height > 0) {
-        aspectRatio = { width, height }
-      }
-    } else if ((ext === ".jpg" || ext === ".jpeg") && imageBytes.length > 2) {
-      // JPEG: scan for SOF0/SOF2 marker to get dimensions
-      const dims = readJpegDimensions(imageBytes)
-      if (dims) aspectRatio = dims
-    }
+    const info = getImageInfo(imageBytes)
+    const blob = await agent.uploadBlob(imageBytes, { encoding: info.mime })
 
     images.push({
       alt: mediaAlt[idx] ?? "",
       image: blob.data.blob,
-      ...(aspectRatio ? { aspectRatio } : {}),
+      aspectRatio: { width: info.width, height: info.height },
     })
   }
 
@@ -868,15 +806,8 @@ export const bluesky: SocialPlatform = {
 
       if (opts.avatar) {
         const imageBytes = readFileSync(opts.avatar)
-        const ext = extname(opts.avatar).toLowerCase()
-        const mimeTypes: Record<string, string> = {
-          ".png": "image/png",
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".webp": "image/webp",
-        }
-        const encoding = mimeTypes[ext] ?? "image/png"
-        const blob = await agent.uploadBlob(imageBytes, { encoding })
+        const info = getImageInfo(imageBytes)
+        const blob = await agent.uploadBlob(imageBytes, { encoding: info.mime })
         record.avatar = blob.data.blob
       }
 

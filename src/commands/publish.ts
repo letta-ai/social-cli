@@ -20,6 +20,7 @@
 import { readFileSync, existsSync } from "node:fs"
 import { resolve as pathResolve, dirname } from "node:path"
 import { loadConfig, loadCredentials } from "../config.js"
+import { getImageInfo } from "../util/media.js"
 
 interface PublishOptions {
   title?: string
@@ -317,90 +318,6 @@ function parseInlineWithFacets(input: string): {
   }
   flushPlain()
   return { plaintext, facets }
-}
-
-/**
- * Read PNG/JPEG/WebP image headers to extract width, height, and mimeType.
- * Throws if the format isn't recognized. Supports the common cases without
- * pulling in a dependency.
- */
-function getImageInfo(data: Buffer): {
-  width: number
-  height: number
-  mime: string
-} {
-  // PNG: 8-byte signature, then IHDR chunk at bytes 8-23 (width @ 16, height @ 20)
-  if (
-    data[0] === 0x89 &&
-    data[1] === 0x50 &&
-    data[2] === 0x4e &&
-    data[3] === 0x47
-  ) {
-    return {
-      width: data.readUInt32BE(16),
-      height: data.readUInt32BE(20),
-      mime: "image/png",
-    }
-  }
-  // JPEG: starts FFD8, scan for SOFn marker (FFC0..FFCF except DHT/DAC/DRI)
-  if (data[0] === 0xff && data[1] === 0xd8) {
-    let i = 2
-    while (i < data.length - 8) {
-      if (data[i] !== 0xff) {
-        i++
-        continue
-      }
-      const marker = data[i + 1]
-      const isSOF =
-        (marker >= 0xc0 && marker <= 0xc3) ||
-        (marker >= 0xc5 && marker <= 0xc7) ||
-        (marker >= 0xc9 && marker <= 0xcb) ||
-        (marker >= 0xcd && marker <= 0xcf)
-      if (isSOF) {
-        return {
-          height: data.readUInt16BE(i + 5),
-          width: data.readUInt16BE(i + 7),
-          mime: "image/jpeg",
-        }
-      }
-      // Skip this segment
-      const segLen = data.readUInt16BE(i + 2)
-      i += 2 + segLen
-    }
-  }
-  // WebP: "RIFF....WEBP" header, then VP8 / VP8L / VP8X chunk
-  if (
-    data[0] === 0x52 &&
-    data[1] === 0x49 &&
-    data[2] === 0x46 &&
-    data[3] === 0x46 &&
-    data[8] === 0x57 &&
-    data[9] === 0x45 &&
-    data[10] === 0x42 &&
-    data[11] === 0x50
-  ) {
-    const subtype = data.toString("ascii", 12, 16)
-    if (subtype === "VP8X") {
-      const width = (data[24] | (data[25] << 8) | (data[26] << 16)) + 1
-      const height = (data[27] | (data[28] << 8) | (data[29] << 16)) + 1
-      return { width, height, mime: "image/webp" }
-    }
-    if (subtype === "VP8L") {
-      const b0 = data[21]
-      const b1 = data[22]
-      const b2 = data[23]
-      const b3 = data[24]
-      const width = (((b1 & 0x3f) << 8) | b0) + 1
-      const height = (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6)) + 1
-      return { width, height, mime: "image/webp" }
-    }
-    if (subtype === "VP8 ") {
-      const width = data.readUInt16LE(26) & 0x3fff
-      const height = data.readUInt16LE(28) & 0x3fff
-      return { width, height, mime: "image/webp" }
-    }
-  }
-  throw new Error("Unsupported image format (only PNG, JPEG, WebP)")
 }
 
 /**

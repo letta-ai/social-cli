@@ -10,6 +10,7 @@ import {
   authorPrefix,
   extensionForContentType,
   attachmentStem,
+  getImageInfo,
   normalizeXMediaV2,
 } from "./media.js"
 import type { NotificationMedia } from "../platforms/types.js"
@@ -164,6 +165,34 @@ describe("extensionForContentType", () => {
 
   it("handles bad URLs without throwing", () => {
     expect(extensionForContentType(null, "not a url")).toBe(".jpg")
+  })
+})
+
+describe("getImageInfo", () => {
+  it("reads PNG dimensions from the file header", () => {
+    const png = Buffer.alloc(24)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png)
+    png.write("IHDR", 12, "ascii")
+    png.writeUInt32BE(1024, 16)
+    png.writeUInt32BE(768, 20)
+
+    expect(getImageInfo(png)).toEqual({ width: 1024, height: 768, mime: "image/png" })
+  })
+
+  it("detects JPEG bytes without relying on a filename extension", () => {
+    const jpeg = Buffer.from([
+      0xff, 0xd8,
+      0xff, 0xc0, 0x00, 0x11, 0x08,
+      0x04, 0x00,
+      0x04, 0x00,
+      0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+    ])
+
+    expect(getImageInfo(jpeg)).toEqual({ width: 1024, height: 1024, mime: "image/jpeg" })
+  })
+
+  it("rejects unsupported or malformed image bytes", () => {
+    expect(() => getImageInfo(Buffer.from("not an image"))).toThrow("Unsupported image format")
   })
 })
 
