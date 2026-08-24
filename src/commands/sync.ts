@@ -50,6 +50,18 @@ interface InboxFile {
   }
 }
 
+const ISO_TIMESTAMP_CURSOR = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
+
+/**
+ * Older inboxes stored the newest notification timestamp in `_sync.cursor`.
+ * Platforms now return opaque cursors (for example, an X tweet ID), so keep
+ * legacy timestamps out of cursor-only API parameters such as `since_id`.
+ */
+export function legacyTimestampCursor(cursor?: string): string | undefined {
+  if (!cursor || !ISO_TIMESTAMP_CURSOR.test(cursor)) return undefined
+  return Number.isFinite(Date.parse(cursor)) ? cursor : undefined
+}
+
 /**
  * Build a lookup map from a users directory.
  * Supports two layouts:
@@ -351,17 +363,21 @@ export async function sync(opts: {
 
     try {
       const platform = await getPlatformAsync(platformName)
+      const legacySince = legacyTimestampCursor(cursor)
       // Pass the stored cursor to the platform so it can use since_id (X) or
-      // equivalent server-side filtering. Fall back to client-side timestamp
-      // filtering for platforms that don't support cursors.
+      // equivalent server-side filtering. Legacy timestamp cursors are passed
+      // separately so platforms never put an ISO timestamp in an opaque-cursor
+      // parameter. Fall back to client-side timestamp filtering for platforms
+      // that don't support time bounds.
       // Disable unreadOnly on --clear so we get the full recent history as baseline.
       const result = await platform.notifications({
         limit: opts.limit ?? 50,
         unreadOnly: opts.clear ? false : (opts.unreadOnly ?? true),
-        cursor,
+        cursor: legacySince ? undefined : cursor,
+        since: legacySince,
       })
 
-      const cutoff = cursor ? new Date(cursor).getTime() : 0
+      const cutoff = legacySince ? Date.parse(legacySince) : 0
 
       for (const n of result.notifications) {
         const itemTime = new Date(n.timestamp).getTime()

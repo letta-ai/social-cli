@@ -98,6 +98,12 @@ social-cli doctor --migrate
 
 to move legacy root-level runtime files into the active state directory. Existing destination files are not overwritten.
 
+Notification cursors in `_sync.cursor` are platform-owned opaque values. Do not
+rewrite them as timestamps. Older inboxes that contain an ISO timestamp are
+migrated safely: X uses it as a `start_time` lower bound until a newer mention
+provides a tweet-ID cursor, while other platforms bootstrap an opaque cursor
+without sending the timestamp in a cursor-only API parameter.
+
 ## How it works
 
 social-cli has two modes: an **agent loop** for automated notification handling, and **quick commands** for direct actions.

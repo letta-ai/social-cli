@@ -325,8 +325,12 @@ export const x: SocialPlatform = {
         "variants",
       ],
     }
-    // Pass cursor as since_id — X returns only tweets newer than this ID
+    // Current state uses tweet IDs as opaque cursors. Legacy inboxes stored an
+    // ISO timestamp instead; use X's time bound for that one-time migration so
+    // the timestamp is never sent as an invalid since_id. The first later
+    // mention replaces it with the tweet-ID cursor returned below.
     if (opts?.cursor) params.since_id = opts.cursor
+    else if (opts?.since) params.start_time = opts.since
 
     const mentions = await withRetry(() => client.v2.userMentionTimeline(me.data.id, params))
 

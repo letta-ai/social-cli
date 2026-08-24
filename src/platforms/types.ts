@@ -171,6 +171,8 @@ export interface NotifOpts {
   unreadOnly?: boolean
   /** Cursor from a previous NotifResult — resumes from that point. */
   cursor?: string
+  /** ISO timestamp lower bound used to migrate legacy timestamp cursors. */
+  since?: string
 }
 
 export interface ProfileRelationship {
